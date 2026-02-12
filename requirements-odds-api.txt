@@ -1,0 +1,9 @@
+# Dépendances pour le script de récupération de clés API (odds_api_full_automation.py)
+requests>=2.31.0
+python-dotenv>=1.0.0
+# Scrapling pour l'automatisation navigateur (selon votre installation)
+# scrapling
+
+# Noms humains aléatoires réalistes (recommandé)
+# https://github.com/joke2k/faker
+faker>=22.0.0
