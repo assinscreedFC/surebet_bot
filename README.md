@@ -47,7 +47,7 @@
 
 1. **Clone the project**
    ```bash
-   cd d:\disc_E\vscode_pyhton\python\test\surebet_bot
+  git clone https://github.com/assinscreedFC/surebet_bot
    ```
 
 2. **Install dependencies**
