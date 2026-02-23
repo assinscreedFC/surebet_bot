@@ -3,18 +3,28 @@ Registration — Inscription sur The Odds API
 =============================================
 Génération de noms aléatoires et inscription automatisée
 sur the-odds-api.com via Scrapling (navigateur stealth).
+
+Utilise le profil Firefox persistant + warm-up + résolution
+captcha autonome (audio → Whisper API → LLM).
 """
 
 import os
 import time
 import random
-import tempfile
-import uuid
+import traceback
 
 from automation.telegram_relay import send_telegram_message
 from automation.captcha_handler import (
     is_captcha_solved,
+    solve_captcha_autonomous,
+    extract_recaptcha_token,
     wait_for_captcha_with_telegram,
+)
+from automation.browser_storage import (
+    sync_firefox_profile,
+    warm_up_browser,
+    get_stealth_config,
+    FIREFOX_HEADERS,
 )
 
 # Noms réalistes via Faker si disponible
@@ -64,14 +74,18 @@ def register_odds_api(
     chat_id: str,
 ) -> bool:
     """
-    S'inscrit sur the-odds-api.com avec relay Telegram pour le captcha.
-    
+    S'inscrit sur the-odds-api.com avec :
+    - Profil Firefox persistant (session réelle)
+    - Warm-up navigateur (cookies Google)
+    - Résolution captcha autonome (audio → Whisper → LLM)
+    - Fallback relay Telegram si échec autonome
+
     Args:
         name: Nom pour l'inscription
         email: Email pour l'inscription
         bot_token: Token bot Telegram
         chat_id: Chat ID Telegram
-    
+
     Returns:
         True si inscription réussie
     """
@@ -82,12 +96,28 @@ def register_odds_api(
         return False
 
     success = False
-    user_data_dir = os.path.join(tempfile.gettempdir(), f"odds_api_{uuid.uuid4().hex[:8]}")
+
+    # Synchroniser le profil Firefox réel
+    print("[INFO] Synchronisation du profil Firefox...")
+    profile_dir = sync_firefox_profile()
+    stealth_config = get_stealth_config()
 
     def register_action(page):
         nonlocal success
 
-        print("\n[ÉTAPE 2] Inscription sur the-odds-api.com")
+        # ── Phase 1: Warm-up ──────────────────────────
+        print("\n[PHASE 1] Warm-up navigateur")
+        print("-" * 50)
+        send_telegram_message(
+            bot_token, chat_id,
+            "🌐 <b>Warm-up en cours</b>\n\n"
+            "Navigation sur sites à fort trafic pour\n"
+            "bâtir un score de confiance Google..."
+        )
+        warm_up_browser(page)
+
+        # ── Phase 2: Navigation cible ─────────────────
+        print("\n[PHASE 2] Inscription sur the-odds-api.com")
         print("-" * 50)
 
         send_telegram_message(
@@ -126,17 +156,37 @@ def register_odds_api(
         except Exception as e:
             print(f"[DEBUG] Clic captcha: {e}")
 
-        # Vérifier si captcha auto-résolu
+        # ── Phase 3-5: Résolution captcha ─────────────
         time.sleep(2)
         if is_captcha_solved(page):
             print("[SUCCESS] Captcha auto-résolu!")
             send_telegram_message(bot_token, chat_id, "✅ Captcha auto-résolu!")
         else:
-            # Attendre résolution via Telegram (10 minutes)
-            if not wait_for_captcha_with_telegram(page, bot_token, chat_id, timeout=600):
-                return
+            # Tenter la résolution autonome (audio → Whisper → LLM)
+            send_telegram_message(
+                bot_token, chat_id,
+                "🤖 <b>Résolution autonome</b>\n\n"
+                "Audio → Whisper API → LLM correction..."
+            )
 
-        # Soumettre le formulaire
+            if solve_captcha_autonomous(page, max_retries=3):
+                send_telegram_message(bot_token, chat_id, "✅ Captcha résolu (autonome)!")
+            else:
+                # Fallback: relay Telegram (résolution manuelle)
+                send_telegram_message(
+                    bot_token, chat_id,
+                    "⚠️ <b>Échec autonome</b>\n\n"
+                    "Basculement en mode manuel Telegram..."
+                )
+                if not wait_for_captcha_with_telegram(page, bot_token, chat_id, timeout=600):
+                    return
+
+        # ── Phase 5: Extraction du token ──────────────
+        token = extract_recaptcha_token(page)
+        if token:
+            print(f"[INFO] Token reCAPTCHA: {token[:40]}...")
+
+        # ── Phase 6: Soumission du formulaire ─────────
         print("[INFO] Soumission...")
         page.click(SELECTORS["subscribe_button"])
         time.sleep(5)
@@ -149,14 +199,13 @@ def register_odds_api(
     try:
         fetcher.fetch(
             ODDS_API_URL,
-            headless=False,  # Visible pour résolution manuelle
+            headless=stealth_config.get("headless", False),
             page_action=register_action,
             wait=10000,
-            user_data_dir=user_data_dir
+            user_data_dir=stealth_config.get("user_data_dir"),
         )
     except Exception as e:
         print(f"[ERREUR] Fetcher: {e}")
-        import traceback
         traceback.print_exc()
         success = False
 

@@ -45,3 +45,12 @@ captcha_temp/
 diagnostic_output.txt
 surebet_bot/captcha_temp/
 surebet_bot/__pycache__/
+
+# Browser persistence (session Firefox + cookies)
+browser_profile/
+surebet_bot/browser_profile/
+
+# Captures & fichiers temporaires captcha
+captcha_screenshot.png
+*.mp3
+*.wav

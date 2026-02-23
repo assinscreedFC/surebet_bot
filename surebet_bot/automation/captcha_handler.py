@@ -19,6 +19,7 @@ from automation.telegram_relay import (
     send_telegram_audio,
     get_telegram_messages,
 )
+from automation.audio_solver import solve_audio_captcha
 
 
 # Dossier temporaire pour les captures
@@ -658,3 +659,224 @@ def _send_updated_screenshot(page, bot_token: str, chat_id: str):
         )
     except Exception as e:
         print(f"[CAPTCHA] Erreur recapture: {e}")
+
+
+# ============================================================
+# Mode Autonome (API Whisper + LLM)
+# ============================================================
+
+def solve_captcha_autonomous(page, max_retries: int = 3) -> bool:
+    """
+    Résolution 100% autonome du captcha via le canal audio.
+
+    Flux:
+    1. Tente auto-solve (checkbox seule — Méthode A)
+    2. Si challenge → bascule en mode audio
+    3. Télécharge MP3 → API Whisper → correction LLM
+    4. Tape la réponse → clique Verify
+    5. Si échec → clique Régénérer → retry
+    6. Détection rate-limit → abort propre
+
+    Args:
+        page: Page Playwright (via StealthyFetcher page_action)
+        max_retries: Nombre max de tentatives (défaut: 3)
+
+    Returns:
+        True si captcha résolu, False sinon.
+    """
+    print(f"[CAPTCHA] 🤖 Mode AUTONOME ({max_retries} tentatives max)")
+
+    # 1. Tenter la résolution automatique (checkbox)
+    if try_auto_solve(page, wait_after_checkbox=5):
+        print("[CAPTCHA] ✅ Auto-résolu par checkbox (Méthode A)")
+        return True
+
+    # 2. Détecter le challenge
+    captcha_info = detect_captcha_type(page)
+    if captcha_info["type"] == "unknown":
+        print("[CAPTCHA] ❌ Captcha non détecté")
+        return False
+
+    challenge_frame = captcha_info.get("challenge_frame")
+    if not challenge_frame:
+        # Tenter de recharger pour obtenir le challenge frame
+        time.sleep(2)
+        captcha_info = detect_captcha_type(page)
+        challenge_frame = captcha_info.get("challenge_frame")
+        if not challenge_frame:
+            print("[CAPTCHA] ❌ Challenge frame introuvable")
+            return False
+
+    # 3. Boucle de résolution audio
+    for attempt in range(1, max_retries + 1):
+        print(f"\n[CAPTCHA] 🎧 Tentative {attempt}/{max_retries}")
+
+        result = _attempt_audio_solve(page, challenge_frame)
+
+        if result == "solved":
+            print(f"[CAPTCHA] ✅ Résolu à la tentative {attempt}")
+            return True
+
+        if result == "rate_limited":
+            print("[CAPTCHA] ⛔ Rate-limité par Google, arrêt")
+            return False
+
+        if result == "failed" and attempt < max_retries:
+            # Régénérer le captcha avant de retenter
+            print("[CAPTCHA] 🔄 Régénération du captcha...")
+            _click_reload_button(challenge_frame)
+            time.sleep(3)
+
+            # Re-vérifier le challenge frame après régénération
+            captcha_info = detect_captcha_type(page)
+            challenge_frame = captcha_info.get("challenge_frame")
+            if not challenge_frame:
+                print("[CAPTCHA] ❌ Challenge frame perdu après régénération")
+                return False
+
+    print(f"[CAPTCHA] ❌ Échec après {max_retries} tentatives")
+    return False
+
+
+def _attempt_audio_solve(page, challenge_frame) -> str:
+    """
+    Une tentative de résolution audio.
+
+    Returns:
+        "solved" | "rate_limited" | "failed"
+    """
+    # Passer en mode audio
+    audio_btn_selectors = [
+        "#recaptcha-audio-button",
+        "button.rc-button-audio",
+        ".rc-button-audio",
+    ]
+
+    clicked = False
+    for sel in audio_btn_selectors:
+        try:
+            btn = challenge_frame.query_selector(sel)
+            if btn:
+                btn.click(force=True)
+                print(f"[CAPTCHA] ✅ Bouton Audio cliqué ({sel})")
+                clicked = True
+                break
+        except Exception:
+            pass
+
+    if not clicked:
+        print("[CAPTCHA] ❌ Bouton Audio introuvable")
+        return "failed"
+
+    time.sleep(3)
+
+    # Vérifier le rate-limit
+    try:
+        content = challenge_frame.content()
+        rate_limit_phrases = [
+            "Try again later",
+            "try again later",
+            "réessayez plus tard",
+            "automated queries",
+            "requêtes automatisées",
+            "Your computer or network may be sending automated queries",
+        ]
+        for phrase in rate_limit_phrases:
+            if phrase in content:
+                print(f"[CAPTCHA] ⛔ Rate-limit détecté: '{phrase}'")
+                return "rate_limited"
+    except Exception:
+        pass
+
+    # Récupérer l'URL audio
+    audio_url = _get_audio_url(challenge_frame)
+    if not audio_url:
+        print("[CAPTCHA] ❌ URL audio introuvable")
+        return "failed"
+
+    print(f"[CAPTCHA] 🔗 Audio URL: {audio_url[:80]}...")
+
+    # Résoudre via le pipeline audio
+    answer = solve_audio_captcha(audio_url)
+    if not answer:
+        print("[CAPTCHA] ❌ Résolution audio échouée")
+        return "failed"
+
+    print(f"[CAPTCHA] 📝 Réponse: '{answer}'")
+
+    # Taper la réponse dans le champ audio
+    try:
+        input_field = challenge_frame.query_selector("#audio-response")
+        if not input_field:
+            print("[CAPTCHA] ❌ Champ audio-response introuvable")
+            return "failed"
+
+        input_field.fill(answer)
+        time.sleep(1)
+
+        # Cliquer Verify
+        verify_btn = challenge_frame.query_selector("#recaptcha-verify-button")
+        if verify_btn:
+            verify_btn.click()
+            print("[CAPTCHA] ✅ Bouton Verify cliqué")
+        else:
+            # Fallback: submit via Enter
+            input_field.press("Enter")
+            print("[CAPTCHA] ✅ Submit via Enter")
+
+        time.sleep(3)
+
+        # Vérifier si résolu
+        if is_captcha_solved(page):
+            return "solved"
+
+        # Vérifier si rate-limité après soumission
+        try:
+            content = challenge_frame.content()
+            if "Try again later" in content or "automated queries" in content:
+                return "rate_limited"
+        except Exception:
+            pass
+
+        print("[CAPTCHA] ⚠️ Réponse incorrecte")
+        return "failed"
+
+    except Exception as e:
+        print(f"[CAPTCHA] ❌ Erreur injection réponse: {e}")
+        return "failed"
+
+
+# ============================================================
+# Extraction du token
+# ============================================================
+
+def extract_recaptcha_token(page) -> str | None:
+    """
+    Extrait le g-recaptcha-response token depuis le DOM
+    après résolution du captcha.
+
+    Args:
+        page: Page Playwright
+
+    Returns:
+        Token reCAPTCHA (string longue) ou None si non trouvé.
+    """
+    selectors = [
+        "#g-recaptcha-response-2",
+        "#g-recaptcha-response",
+        'textarea[name="g-recaptcha-response"]',
+    ]
+
+    for selector in selectors:
+        try:
+            token = page.evaluate(
+                f'document.querySelector("{selector}")?.value || ""'
+            )
+            if token and len(token) > 30:
+                print(f"[CAPTCHA] 🔑 Token extrait ({len(token)} chars)")
+                return token
+        except Exception:
+            pass
+
+    print("[CAPTCHA] ❌ Token reCAPTCHA introuvable")
+    return None
