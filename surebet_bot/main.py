@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import (
     API_KEYS_FILE, DB_FILE, LOG_FILE,
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
-    SCAN_INTERVAL, COOLDOWN_MINUTES, BOOKMAKERS,
+    SCAN_INTERVAL, REQUEST_DELAY, COOLDOWN_MINUTES, BOOKMAKERS,
     FOOTBALL_LEAGUES, BASKETBALL_LEAGUES, TENNIS_TOURNAMENTS, NFL_LEAGUES
 )
 from core.api_manager import APIManager
@@ -72,7 +72,8 @@ async def run_bot():
         database=db,  # Passer la DB pour sauvegarder les surebets
         scan_interval=SCAN_INTERVAL,
         cooldown_minutes=COOLDOWN_MINUTES,
-        bookmakers=BOOKMAKERS
+        bookmakers=BOOKMAKERS,
+        request_delay=REQUEST_DELAY
     )
     
     # Sports à scanner (commencer par les plus actifs)

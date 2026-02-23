@@ -155,8 +155,13 @@ def transcribe_audio(audio_path: str) -> str | None:
             print(f"[AUDIO] Réponse: {response.text[:200]}")
             return None
 
-        # response_format=text renvoie du texte brut
-        raw_text = response.text.strip()
+        # Gérer le cas où l'API renvoie du JSON malgré response_format="text"
+        try:
+            data = response.json()
+            raw_text = data.get("text", "")
+        except ValueError:
+            raw_text = response.text.strip()
+            
         print(f"[AUDIO] 🎤 Transcription brute: '{raw_text}'")
         return raw_text
 

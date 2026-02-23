@@ -1,5 +1,7 @@
-# Client The Odds API - Version Complète
+# Client The Odds API - Version Complète (avec Rate Limiting)
 
+import asyncio
+import time
 import aiohttp
 from typing import Optional
 from dataclasses import dataclass, field
@@ -20,6 +22,10 @@ class OddsClient:
     """
     Client asynchrone pour The Odds API.
     
+    Rate limiting intégré:
+    - asyncio.Lock pour forcer les requêtes séquentielles
+    - Délai configurable entre chaque requête (défaut: 3s)
+    
     Endpoints supportés:
     - GET /sports - Liste des sports
     - GET /sports/{sport}/events - Liste des événements
@@ -29,9 +35,12 @@ class OddsClient:
     
     BASE_URL = "https://api.the-odds-api.com/v4"
     
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, request_delay: float = 3.0):
         self.api_key = api_key
+        self.request_delay = request_delay
         self._session: Optional[aiohttp.ClientSession] = None
+        self._lock = asyncio.Lock()
+        self._last_request_time: float = 0.0
     
     async def _get_session(self) -> aiohttp.ClientSession:
         """Retourne ou crée une session HTTP."""
@@ -45,30 +54,41 @@ class OddsClient:
             await self._session.close()
     
     async def _request(self, endpoint: str, params: dict = None) -> OddsResponse:
-        """Effectue une requête GET."""
-        session = await self._get_session()
-        
-        params = params or {}
-        params["apiKey"] = self.api_key
-        
-        try:
-            async with session.get(f"{self.BASE_URL}/{endpoint}", params=params) as resp:
-                response = OddsResponse(
-                    success=resp.status == 200,
-                    status_code=resp.status,
-                    requests_remaining=int(resp.headers.get("x-requests-remaining", 0)),
-                    requests_used=int(resp.headers.get("x-requests-used", 0))
-                )
-                
-                if resp.status == 200:
-                    response.data = await resp.json()
-                else:
-                    response.error = await resp.text()
-                
-                return response
-                
-        except Exception as e:
-            return OddsResponse(success=False, error=str(e))
+        """Effectue une requête GET avec rate limiting."""
+        async with self._lock:  # Une seule requête à la fois
+            # Respecter le délai minimum entre requêtes
+            now = time.monotonic()
+            elapsed = now - self._last_request_time
+            if self._last_request_time > 0 and elapsed < self.request_delay:
+                wait_time = self.request_delay - elapsed
+                print(f"[OddsClient] ⏳ Rate limit: attente {wait_time:.1f}s...")
+                await asyncio.sleep(wait_time)
+            
+            session = await self._get_session()
+            
+            params = params or {}
+            params["apiKey"] = self.api_key
+            
+            try:
+                async with session.get(f"{self.BASE_URL}/{endpoint}", params=params) as resp:
+                    response = OddsResponse(
+                        success=resp.status == 200,
+                        status_code=resp.status,
+                        requests_remaining=int(resp.headers.get("x-requests-remaining", 0)),
+                        requests_used=int(resp.headers.get("x-requests-used", 0))
+                    )
+                    
+                    if resp.status == 200:
+                        response.data = await resp.json()
+                    else:
+                        response.error = await resp.text()
+                    
+                    self._last_request_time = time.monotonic()
+                    return response
+                    
+            except Exception as e:
+                self._last_request_time = time.monotonic()
+                return OddsResponse(success=False, error=str(e))
     
     async def get_sports(self, all_sports: bool = False) -> OddsResponse:
         """

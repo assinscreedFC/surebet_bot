@@ -43,7 +43,8 @@ class SurebetScanner:
         database = None,
         scan_interval: int = 10,
         cooldown_minutes: int = 5,
-        bookmakers: list[str] = None
+        bookmakers: list[str] = None,
+        request_delay: float = 3.0
     ):
         self.api_manager = api_manager
         self.telegram = telegram
@@ -51,6 +52,7 @@ class SurebetScanner:
         self.scan_interval = scan_interval
         self.cooldown_minutes = cooldown_minutes
         self.bookmakers = bookmakers or []
+        self.request_delay = request_delay
         
         self.client: Optional[OddsClient] = None
         self.running = False
@@ -78,7 +80,7 @@ class SurebetScanner:
         if self.client is None or self.client.api_key != key:
             if self.client:
                 asyncio.create_task(self.client.close())
-            self.client = OddsClient(key)
+            self.client = OddsClient(key, request_delay=self.request_delay)
         return self.client
     
     def _is_in_cooldown(self, identifier: str) -> bool:
