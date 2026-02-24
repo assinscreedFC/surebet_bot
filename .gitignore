@@ -36,6 +36,7 @@ env/
 *.png
 # Project Specific
 *.txt
+surebet_bot/*.txt
 .env
 surebet.db
 bot.log
