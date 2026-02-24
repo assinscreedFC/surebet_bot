@@ -40,6 +40,11 @@ from constants import (
     SUREBET_HISTORY_LIMIT,
     LOW_QUOTA_THRESHOLD,
     GENERATION_TIMEOUT,
+    # Scheduling
+    SCHEDULE_SLOTS,
+    SLOT_PRIORITY,
+    SPORT_PRIORITY,
+    LINEUP_ALERT_MINUTES,
 )
 
 # === CHEMINS (dynamiques, restent dans config) ===

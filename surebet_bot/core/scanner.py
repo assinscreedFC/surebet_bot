@@ -1,4 +1,5 @@
 # Scanner de cotes et détection d'arbitrage - Version Corrigée
+# Intègre le SmartScheduler pour un scan adaptatif
 
 import asyncio
 from datetime import datetime, timedelta
@@ -9,6 +10,7 @@ from collections import deque
 from core.odds_client import OddsClient
 from core.calculator import calculate_arbitrage, SurebetResult
 from core.api_manager import APIManager
+from core.scheduler import SmartScheduler
 from notifications.telegram_bot import TelegramBot
 
 
@@ -44,7 +46,8 @@ class SurebetScanner:
         scan_interval: int = 10,
         cooldown_minutes: int = 5,
         bookmakers: list[str] = None,
-        request_delay: float = 3.0
+        request_delay: float = 3.0,
+        scheduler: SmartScheduler = None
     ):
         self.api_manager = api_manager
         self.telegram = telegram
@@ -53,6 +56,9 @@ class SurebetScanner:
         self.cooldown_minutes = cooldown_minutes
         self.bookmakers = bookmakers or []
         self.request_delay = request_delay
+        
+        # Smart Scheduler (optionnel — fallback sur scan_interval fixe)
+        self.scheduler = scheduler or SmartScheduler()
         
         self.client: Optional[OddsClient] = None
         self.running = False
@@ -632,13 +638,16 @@ class SurebetScanner:
         await self.db.save_surebet(record)
     
     async def scan_once(self, sports: dict[str, str]):
-        """Effectue un scan complet."""
+        """Effectue un scan complet avec priorisation dynamique."""
         self.scans_count += 1
         # Nettoyer le cache de cooldown avant chaque scan
         self._cleanup_cooldown_cache()
         all_surebets = []
         
-        for sport_key, sport_name in sports.items():
+        # Prioriser les sports via le scheduler
+        prioritized_sports = self.scheduler.prioritize_sports(sports)
+        
+        for sport_key, sport_name in prioritized_sports.items():
             # Vérifier si on doit arrêter
             if self.waiting_for_key or self.force_stop:
                 print(f"[Scanner] ⛔ Pause du scan")
@@ -669,11 +678,16 @@ class SurebetScanner:
         return all_surebets
     
     async def run(self, sports: dict[str, str]):
-        """Boucle principale du scanner.
+        """Boucle principale du scanner avec scheduling intelligent.
         
-        Comportement de retry:
-        - Si toutes les clés sont épuisées, attend avec backoff (1, 2, 3... jusqu'à 10 min)
-        - Réessaie de générer une clé toutes les 10 min indéfiniment
+        Comportement:
+        - Adapte l'intervalle de scan selon le créneau (5s→15s)
+        - Priorise les sports en fonction de l'heure
+        - Notifie les changements de créneau sur Telegram
+        - Alerte sur les matchs imminents (<1h) pour les compositions
+        
+        Retry:
+        - Si toutes les clés sont épuisées, attend avec backoff (1→10 min)
         - S'arrête uniquement si force_stop == True (commande /stop)
         """
         self.running = True
@@ -683,7 +697,11 @@ class SurebetScanner:
         self.force_stop = False
         self.retry_count = 0
         
-        print(f"Scanner démarré - Intervalle: {self.scan_interval}s")
+        # Intervalle dynamique via scheduler
+        current_interval = self.scheduler.get_scan_interval()
+        slot_name, slot_config = self.scheduler.get_current_slot()
+        
+        print(f"Scanner démarré - Créneau: {slot_config['label']} ({current_interval}s)")
         print(f"Sports à scanner: {len(sports)}")
         print(f"Clé API active: {self.api_manager.current_key[:8] if self.api_manager.current_key else 'AUCUNE'}...")
         
@@ -693,13 +711,17 @@ class SurebetScanner:
             status_callback=self.get_stats
         )
         
+        # Message de démarrage avec info scheduler
         await self.telegram.send_message(
             f"🟢 <b>Bot Surebet démarré!</b>\n\n"
             f"📊 Sports: {len(sports)}\n"
-            f"⏱ Intervalle: {self.scan_interval}s\n"
             f"🔑 Clés API: {self.api_manager.valid_keys_count}\n\n"
+            f"{self.scheduler.get_status_message()}\n\n"
             f"Commandes: /stop /status /help"
         )
+        
+        # Initialiser la détection de changement de créneau
+        self.scheduler.has_slot_changed()
         
         while self.running and not self.force_stop:
             # Vérifier les commandes Telegram
@@ -707,6 +729,16 @@ class SurebetScanner:
             
             if self.force_stop:
                 break
+            
+            # ── Détection changement de créneau ──
+            changed, old_slot, new_slot = self.scheduler.has_slot_changed()
+            if changed and old_slot is not None:
+                msg = self.scheduler.get_slot_change_message(old_slot, new_slot)
+                await self.telegram.send_message(msg)
+                print(f"[Scheduler] 🔄 Créneau: {old_slot} → {new_slot}")
+            
+            # Mettre à jour l'intervalle dynamique
+            current_interval = self.scheduler.get_scan_interval()
             
             # Si on attend une nouvelle clé, faire le retry avec backoff
             if self.waiting_for_key:
@@ -724,7 +756,13 @@ class SurebetScanner:
                 if surebets:
                     print(f"[{datetime.now().strftime('%H:%M:%S')}] 🎯 {len(surebets)} surebet(s) trouvé(s)!")
                 else:
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Scan #{self.scans_count} - API: {self.requests_remaining} restantes")
+                    slot_label = self.scheduler.get_current_slot()[1]['label']
+                    print(
+                        f"[{datetime.now().strftime('%H:%M:%S')}] "
+                        f"Scan #{self.scans_count} - {slot_label} - "
+                        f"API: {self.requests_remaining} restantes - "
+                        f"Intervalle: {current_interval}s"
+                    )
                 
                 # Alerte si quota bas
                 if self.requests_remaining > 0 and self.requests_remaining < 50:
@@ -733,19 +771,23 @@ class SurebetScanner:
                         self.api_manager.current_key or "N/A"
                     )
                 
-                await asyncio.sleep(self.scan_interval)
+                await asyncio.sleep(current_interval)
                 
             except Exception as e:
                 await self._handle_error(f"Exception boucle principale: {e}")
-                await asyncio.sleep(self.scan_interval)
+                await asyncio.sleep(current_interval)
         
-        # Message de fin
+        # Message de fin avec stats scheduler
         if self.force_stop:
+            sched_stats = self.scheduler.get_stats()
             await self.telegram.send_message(
                 f"⛔ <b>Bot arrêté sur demande</b>\n\n"
                 f"Scans effectués: {self.scans_count}\n"
                 f"Surebets trouvés: {len(self.surebets_found)}\n"
-                f"Erreurs: {self.errors_count}"
+                f"Erreurs: {self.errors_count}\n\n"
+                f"📊 <b>Scheduler:</b>\n"
+                f"Changements de créneau: {sched_stats['slot_changes']}\n"
+                f"Matchs alertés: {sched_stats['notified_matches']}"
             )
         
         self.running = False
@@ -758,7 +800,7 @@ class SurebetScanner:
         await self.telegram.send_message("🔴 <b>Bot Surebet arrêté</b>")
     
     def get_stats(self) -> dict:
-        """Retourne les statistiques."""
+        """Retourne les statistiques (incluant le scheduler)."""
         uptime = ""
         if self.start_time:
             delta = datetime.now() - self.start_time
@@ -766,7 +808,7 @@ class SurebetScanner:
             minutes, seconds = divmod(remainder, 60)
             uptime = f"{hours}h {minutes}m {seconds}s"
         
-        return {
+        stats = {
             "uptime": uptime,
             "scans_count": self.scans_count,
             "surebets_found": len(self.surebets_found),
@@ -774,3 +816,9 @@ class SurebetScanner:
             "api_key": self.api_manager.current_key[:8] + "..." if self.api_manager.current_key else None,
             "valid_keys": self.api_manager.valid_keys_count,
         }
+        
+        # Ajouter les stats du scheduler
+        if self.scheduler:
+            stats["scheduler"] = self.scheduler.get_stats()
+        
+        return stats

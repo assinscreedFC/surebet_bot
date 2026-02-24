@@ -26,6 +26,7 @@ from config import (
 )
 from core.api_manager import APIManager
 from core.scanner import SurebetScanner
+from core.scheduler import SmartScheduler
 from notifications.telegram_bot import TelegramBot
 from data.database import Database
 from utils.logger import setup_logger
@@ -44,6 +45,7 @@ async def run_bot():
     api_manager = APIManager(API_KEYS_FILE, auto_generate=True)
     telegram = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
     db = Database(DB_FILE)
+    scheduler = SmartScheduler()
     
     # Charger les clés API
     keys_count = api_manager.load_keys()
@@ -65,15 +67,16 @@ async def run_bot():
     await db.connect()
     logger.info("Base de données connectée")
     
-    # Créer le scanner
+    # Créer le scanner avec scheduler intelligent
     scanner = SurebetScanner(
         api_manager=api_manager,
         telegram=telegram,
-        database=db,  # Passer la DB pour sauvegarder les surebets
+        database=db,
         scan_interval=SCAN_INTERVAL,
         cooldown_minutes=COOLDOWN_MINUTES,
         bookmakers=BOOKMAKERS,
-        request_delay=REQUEST_DELAY
+        request_delay=REQUEST_DELAY,
+        scheduler=scheduler
     )
     
     # Sports à scanner (commencer par les plus actifs)

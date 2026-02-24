@@ -155,3 +155,68 @@ MAX_RETRY_BACKOFF_MIN = 10   # Backoff max entre retries (minutes)
 SUREBET_HISTORY_LIMIT = 1000 # Nombre max de surebets en mémoire
 LOW_QUOTA_THRESHOLD = 50     # Seuil d'alerte quota bas
 GENERATION_TIMEOUT = 600     # Timeout génération de clé (secondes)
+
+
+# ── SCHEDULING ──────────────────────────────────────────────
+# Créneaux temporels stratégiques pour la détection de surebets.
+# Les créneaux sont évalués par ordre de priorité (SLOT_PRIORITY).
+# Le premier créneau correspondant à jour+heure est retourné.
+
+SCHEDULE_SLOTS = {
+    "live_weekend": {
+        "days": [5, 6],                # samedi=5, dimanche=6
+        "hours": (14, 22),             # 14h00 - 22h00
+        "scan_interval": 5,            # Scan très agressif (5s)
+        "label": "🔴 LIVE Week-end",
+        "description": "Volume massif de matchs en Live",
+    },
+    "evening_weekday": {
+        "days": [0, 1, 2, 3, 4],       # lundi-vendredi
+        "hours": (19, 21),             # 19h00 - 21h00
+        "scan_interval": 5,            # Scan agressif
+        "label": "🌙 Soir Semaine",
+        "description": "Matchs européens et ajustements dernière minute",
+    },
+    "boosted_odds": {
+        "days": [0, 1, 2, 3, 4, 5, 6], # tous les jours
+        "hours": (17, 20),             # 17h00 - 20h00
+        "scan_interval": 7,            # Scan rapide
+        "label": "🚀 Cotes Boostées",
+        "description": "Winamax/Unibet sortent les cotes boostées",
+    },
+    "morning_realignment": {
+        "days": [0, 1, 2, 3, 4, 5, 6], # tous les jours
+        "hours": (9, 10),              # 09h00 - 10h00
+        "scan_interval": 8,            # Scan modéré
+        "label": "☀️ Réalignement Matin",
+        "description": "Réalignement des cotes sur les marchés mondiaux",
+    },
+    "default": {
+        "days": [0, 1, 2, 3, 4, 5, 6],
+        "hours": (0, 24),
+        "scan_interval": 15,           # Scan calme
+        "label": "💤 Hors-créneau",
+        "description": "Période calme, scan de routine",
+    },
+}
+
+# Ordre d'évaluation des créneaux (du plus prioritaire au moins)
+SLOT_PRIORITY = [
+    "live_weekend",
+    "evening_weekday",
+    "boosted_odds",
+    "morning_realignment",
+    "default",
+]
+
+# Sports prioritaires par créneau (préfixes avec * wildcard)
+SPORT_PRIORITY = {
+    "live_weekend":        ["soccer_*", "basketball_*", "tennis_*"],
+    "evening_weekday":     ["soccer_*", "basketball_*"],
+    "boosted_odds":        ["soccer_*"],
+    "morning_realignment": ["basketball_*", "americanfootball_*", "soccer_*"],
+    "default":             ["*"],
+}
+
+# Seuil en minutes avant le match pour l'alerte composition
+LINEUP_ALERT_MINUTES = 60
