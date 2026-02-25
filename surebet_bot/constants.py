@@ -16,7 +16,7 @@ TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/{method}"
 # Régions des bookmakers à interroger
 # Disponibles: us, uk, eu, au, fr
 
-REGIONS = "eu,fr"
+REGIONS = "eu,fr,uk"
 
 
 # ── BOOKMAKERS CIBLES ────────────────────────────────────────────
@@ -24,30 +24,49 @@ REGIONS = "eu,fr"
 # Docs: https://the-odds-api.com/sports-odds-data/bookmaker-apis.html
 
 BOOKMAKERS = [
-    "betclic",           # Betclic (FR)
+    "betclic_fr",        # Betclic (FR)
     "unibet_fr",         # Unibet (FR)
     "winamax_fr",        # Winamax (FR)
-    "pmu",               # PMU (FR)
-    "parionssport",      # Parions Sport (FR)
+    "pmu_fr",            # PMU (FR)
+    "parionssport_fr",   # Parions Sport (FR)
     "netbet_fr",         # NetBet (FR)
     "pinnacle",          # Pinnacle (EU)
     "betway",            # Betway (UK)
     "bet365",            # Bet365
-    "1xbet",             # 1xBet (EU)
+    "onexbet",           # 1xBet (EU)
+    "winamax_de",        # Winamax (DE)
+    "tipico_de",         # Tipico (DE)
+    "mybookieag",        # MyBookie
+    "sport888",          # 888sport
+    "betfair_ex_eu",     # Betfair Exchange (EU)
+    "unibet_se",         # Unibet (SE)
+    "leovegas_se",       # LeoVegas (SE)
+    "unibet_nl",         # Unibet (NL)
+    "betsson",           # Betsson
 ]
 
 # Noms affichables pour chaque bookmaker (clé API → nom)
 BOOKMAKER_DISPLAY_NAMES = {
-    "betclic":       "Betclic",
+    "betclic_fr":    "Betclic",
     "unibet_fr":     "Unibet FR",
-    "winamax_fr":    "Winamax FR",
-    "pmu":           "PMU",
-    "parionssport":  "Parions Sport",
-    "netbet_fr":     "NetBet FR",
+    "winamax_fr":    "Winamax",
+    "pmu_fr":        "PMU",
+    "parionssport_fr":"Parions Sport",
+    "netbet_fr":     "NetBet",
     "pinnacle":      "Pinnacle",
     "betway":        "Betway",
     "bet365":        "Bet365",
-    "1xbet":         "1xBet",
+    "onexbet":       "1xBet",
+    "winamax_de":    "Winamax DE",
+    "tipico_de":     "Tipico DE",
+    "mybookieag":    "MyBookie",
+    "betclic_fr":    "Betclic FR",
+    "sport888":      "888sport",
+    "betfair_ex_eu": "Betfair Exchange EU",
+    "unibet_se":     "Unibet SE",
+    "leovegas_se":   "LeoVegas SE",
+    "unibet_nl":     "Unibet NL",
+    "betsson":       "Betsson",
 }
 
 

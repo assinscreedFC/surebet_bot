@@ -151,17 +151,21 @@ async def step1_validate_sports(client):
         if key in api_sports:
             api_s = api_sports[key]
             active = api_s.get("active", False)
-            valid_sports[key] = name
+            if active:
+                valid_sports[key] = name
             status = "ACTIF" if active else "INACTIF"
-            logger.debug(f"    ✓ {key:45s} → {name:20s} [{status}]")
+            logger.debug(f"    {'✓' if active else '—'} {key:45s} → {name:20s} [{status}]")
         else:
             invalid_sports.append(key)
             logger.warning(f"    ✗ {key:45s} → {name:20s} [NON TROUVÉ]")
 
+    active_count = len(valid_sports)
+    total_configured = len(ALL_SPORTS)
+
     results.add(
-        "Sports configurés valides",
-        len(valid_sports) > 0,
-        f"Valides: {len(valid_sports)}/{len(ALL_SPORTS)}" +
+        "Sports configurés présents",
+        len(invalid_sports) == 0,
+        f"Présents: {total_configured - len(invalid_sports)}/{total_configured} | Actifs: {active_count}" +
         (f" | Invalides: {', '.join(invalid_sports)}" if invalid_sports else "")
     )
 
@@ -181,69 +185,40 @@ async def step2_fetch_odds(all_keys, sports: dict):
     from core.odds_client import OddsClient
     from constants import REGIONS
 
-    # On teste un sous-ensemble pour ne pas exploser le quota
-    priority = [
-        "soccer_epl", "soccer_france_ligue_one",
-        "basketball_nba", "soccer_spain_la_liga"
-    ]
-    test_sports = {k: sports[k] for k in priority if k in sports}
-    if not test_sports:
-        test_sports = dict(list(sports.items())[:3])
+    # L'utilisateur a demandé de tester TOUS les sports, toutes les ligues
+    test_sports = sports
 
     logger.info(f"  🎯 Sports à tester: {list(test_sports.values())}")
     logger.info(f"  🔑 Clés API disponibles: {len(all_keys)}")
 
     all_odds_data = {}
     provider_stats = defaultdict(lambda: {"count": 0, "sports": set(), "markets": set()})
-    working_client = None
-    working_key_info = None
+    key_index = 0
+    
+    def get_next_working_client():
+        nonlocal key_index
+        while key_index < len(all_keys):
+            email, key = all_keys[key_index]
+            key_index += 1
+            logger.info(f"")
+            logger.info(f"  🔑 Tentative avec clé: {key[:8]}... ({email})")
+            client = OddsClient(key, request_delay=2.0)
+            return client, email, key
+        return None, None, None
 
-    # Essayer chaque clé jusqu'à en trouver une qui fonctionne
-    for email, key in all_keys:
-        logger.info(f"")
-        logger.info(f"  🔑 Tentative avec clé: {key[:8]}... ({email})")
-
-        client = OddsClient(key, request_delay=2.0)
-
-        # Tester avec le premier sport
-        first_key = list(test_sports.keys())[0]
-        resp = await client.get_odds(sport=first_key, regions=REGIONS, markets="h2h")
-
-        if resp.success:
-            logger.info(f"  ✅ Clé {key[:8]}... fonctionne! Quota restant: {resp.requests_remaining}")
-            working_client = client
-            working_key_info = (email, key)
-
-            # Traiter la première réponse
-            if resp.data:
-                all_odds_data[first_key] = resp.data
-                for ev in resp.data:
-                    for bm in ev.get("bookmakers", []):
-                        bm_key = bm.get("key", "unknown")
-                        provider_stats[bm_key]["count"] += 1
-                        provider_stats[bm_key]["sports"].add(test_sports[first_key])
-                        for m in bm.get("markets", []):
-                            provider_stats[bm_key]["markets"].add(m.get("key", "?"))
-            break
-        else:
-            logger.info(f"  ❌ Clé {key[:8]}... épuisée (HTTP {resp.status_code})")
-            await client.close()
+    working_client, working_email, working_key = get_next_working_client()
 
     if not working_client:
-        results.add(
-            "Connexion API /odds",
-            False,
-            f"Toutes les {len(all_keys)} clés sont épuisées (OUT_OF_USAGE_CREDITS)"
-        )
+        results.add("Connexion API /odds", False, "Aucune clé API disponible")
         return {}, {}
 
     results.add(
         "Connexion API /odds",
         True,
-        f"Clé active: {working_key_info[1][:8]}... ({working_key_info[0]})"
+        f"Clé active initiale: {working_key[:8]}... ({working_email})"
     )
 
-    # Continuer avec les autres sports
+    # Continuer avec tous les sports
     for sport_key, sport_name in test_sports.items():
         if sport_key in all_odds_data:
             continue  # Déjà récupéré
@@ -251,10 +226,26 @@ async def step2_fetch_odds(all_keys, sports: dict):
         logger.info(f"")
         logger.info(f"  ─── {sport_name} ({sport_key}) ───")
 
-        # Tester h2h + totals
         resp = await working_client.get_odds(
             sport=sport_key, regions=REGIONS, markets="h2h,totals"
         )
+
+        while not resp.success and resp.status_code in [401, 402, 429]:
+            logger.warning(f"  ⚠️ Quota épuisé sur la clé actuelle (HTTP {resp.status_code}). Failover...")
+            await working_client.close()
+            working_client, working_email, working_key = get_next_working_client()
+            if not working_client:
+                logger.error("  ❌ Toutes les clés sont épuisées.")
+                break
+            
+            # Réessayer avec la nouvelle clé
+            resp = await working_client.get_odds(
+                sport=sport_key, regions=REGIONS, markets="h2h,totals"
+            )
+
+        if not working_client:
+            results.add(f"Cotes {sport_name}", False, "OUT_OF_USAGE_CREDITS sur toutes les clés")
+            continue
 
         if not resp.success:
             results.add(f"Cotes {sport_name}", False,
@@ -507,7 +498,8 @@ async def step5_pipeline_simulation(all_odds_data: dict):
             logger.info(f"")
             logger.info(f"  📌 {league_name} ({league_key})")
 
-            for market_type in base_markets:
+            all_markets = base_markets + cat.get("player_props", [])
+            for market_type in all_markets:
                 # Pour chaque paire de fournisseurs, simuler une cote
                 tested_pairs = 0
 
@@ -557,6 +549,16 @@ async def step5_pipeline_simulation(all_odds_data: dict):
                                 is_surebet_case = (tested_pairs % 15 == 0)
                                 if is_surebet_case:
                                     o1, o2 = 2.08, 2.08
+                                else:
+                                    o1 = round(random.uniform(1.6, 2.4), 2)
+                                    o2 = round(random.uniform(1.6, 2.4), 2)
+
+                                result = calculate_two_way_arbitrage(o1, o2)
+
+                            elif market_type in cat.get("player_props", []):
+                                is_surebet_case = (tested_pairs % 15 == 0)
+                                if is_surebet_case:
+                                    o1, o2 = 2.15, 2.15
                                 else:
                                     o1 = round(random.uniform(1.6, 2.4), 2)
                                     o2 = round(random.uniform(1.6, 2.4), 2)
