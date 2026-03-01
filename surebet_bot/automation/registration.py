@@ -21,7 +21,7 @@ from automation.captcha_handler import (
     wait_for_captcha_with_telegram,
 )
 from automation.browser_storage import (
-    sync_firefox_profile,
+    sync_chrome_profile,
     warm_up_browser,
     get_stealth_config,
     FIREFOX_HEADERS,
@@ -97,9 +97,9 @@ def register_odds_api(
 
     success = False
 
-    # Synchroniser le profil Firefox réel
-    print("[INFO] Synchronisation du profil Firefox...")
-    profile_dir = sync_firefox_profile()
+    # Synchroniser le profil Chrome/Edge réel
+    print("[INFO] Synchronisation du profil Chrome...")
+    profile_dir = sync_chrome_profile()
     stealth_config = get_stealth_config()
 
     def register_action(page):
@@ -128,19 +128,19 @@ def register_odds_api(
             f"⏳ Remplissage du formulaire..."
         )
 
-        time.sleep(2)
+        page.wait_for_timeout(2000)
 
         # Cliquer sur le bouton START
         print("[INFO] Clic sur START...")
         page.click(SELECTORS["start_button"])
-        time.sleep(2)
+        page.wait_for_timeout(2000)
 
         # Remplir le formulaire
         print(f"[INFO] Remplissage - Nom: {name}, Email: {email}")
         page.fill(SELECTORS["name_input"], name)
-        time.sleep(0.5)
+        page.wait_for_timeout(500)
         page.fill(SELECTORS["email_input"], email)
-        time.sleep(1)
+        page.wait_for_timeout(1000)
 
         # Cliquer sur la zone captcha pour déclencher
         try:
@@ -152,12 +152,12 @@ def register_odds_api(
                     y = box["y"] + box["height"] / 2
                     print(f"[INFO] Clic captcha ({x:.0f}, {y:.0f})")
                     page.mouse.click(x, y)
-                    time.sleep(3)
+                    page.wait_for_timeout(3000)
         except Exception as e:
             print(f"[DEBUG] Clic captcha: {e}")
 
         # ── Phase 3-5: Résolution captcha ─────────────
-        time.sleep(2)
+        page.wait_for_timeout(2000)
         if is_captcha_solved(page):
             print("[SUCCESS] Captcha auto-résolu!")
             send_telegram_message(bot_token, chat_id, "✅ Captcha auto-résolu!")
@@ -189,17 +189,18 @@ def register_odds_api(
         # ── Phase 6: Soumission du formulaire ─────────
         print("[INFO] Soumission...")
         page.click(SELECTORS["subscribe_button"])
-        time.sleep(5)
+        page.wait_for_timeout(5000)
 
         send_telegram_message(bot_token, chat_id, "✅ Formulaire soumis!")
         print("[SUCCESS] Formulaire soumis!")
         success = True
 
-    fetcher = StealthyFetcher()
     try:
-        fetcher.fetch(
+        StealthyFetcher.fetch(
             ODDS_API_URL,
             headless=stealth_config.get("headless", False),
+            real_chrome=stealth_config.get("real_chrome", True),
+            additional_args=stealth_config.get("additional_args"),
             page_action=register_action,
             wait=10000,
             user_data_dir=stealth_config.get("user_data_dir"),

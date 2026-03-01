@@ -86,7 +86,8 @@ def create_mail_tm_account() -> tuple[str | None, str | None]:
 def get_api_key_from_email(
     token: str,
     max_wait: int = 300,
-    on_status=None
+    on_status=None,
+    page=None
 ) -> str | None:
     """
     Récupère la clé API The Odds API depuis l'email reçu.
@@ -120,7 +121,10 @@ def get_api_key_from_email(
             )
 
             if response.status_code != 200:
-                time.sleep(10)
+                if page:
+                    page.wait_for_timeout(10000)
+                else:
+                    time.sleep(10)
                 continue
 
             messages = response.json().get("hydra:member", [])
@@ -167,7 +171,10 @@ def get_api_key_from_email(
         except Exception as e:
             print(f"[DEBUG] Erreur vérification emails: {e}")
 
-        time.sleep(10)
+        if page:
+            page.wait_for_timeout(10000)
+        else:
+            time.sleep(10)
 
     if on_status:
         on_status("❌ Email non reçu après 5 minutes")

@@ -35,70 +35,95 @@ def ensure_profile_dir() -> Path:
     return BROWSER_PROFILE_DIR
 
 
-def sync_firefox_profile() -> Path:
+def sync_chrome_profile() -> Path:
     """
-    Copie les fichiers critiques du profil Firefox réel
-    vers le répertoire dédié à Scrapling.
-
-    Fichiers copiés :
-    - cookies.sqlite (cookies)
-    - webappsstore.sqlite (localStorage)
-    - storage/ (IndexedDB, cache)
-    - permissions.sqlite
-    - content-prefs.sqlite
+    Copie le profil Google Chrome (ou Edge) de l'utilisateur vers
+    le répertoire dédié à Scrapling. Cela permet d'utiliser le profil
+    sans erreur de verrouillage (lock) si le navigateur est déjà ouvert.
 
     Returns:
         Chemin du profil synchronisé.
     """
     ensure_profile_dir()
-    source = _FIREFOX_PROFILES_DIR / _FIREFOX_PROFILE_NAME
+    
+    local_app_data = Path(os.environ.get("LOCALAPPDATA", ""))
+    
+    # Ordre de préférence des navigateurs
+    possible_paths = [
+        local_app_data / "Google" / "Chrome" / "User Data",
+        local_app_data / "Google" / "Chrome for Testing" / "User Data",
+        local_app_data / "Microsoft" / "Edge" / "User Data",
+    ]
+    
+    source = None
+    for p in possible_paths:
+        if p.exists():
+            source = p
+            break
 
-    if not source.exists():
-        print(f"[STORAGE] ⚠️ Profil Firefox introuvable: {source}")
-        print("[STORAGE] Utilisation du profil vierge")
+    if not source:
+        print("[STORAGE] ⚠️ Aucun profil Chrome/Edge trouvé sur le système.")
+        print("[STORAGE] Utilisation du profil vierge.")
         return BROWSER_PROFILE_DIR
 
-    # Fichiers critiques à copier
-    critical_files = [
-        "cookies.sqlite",
-        "webappsstore.sqlite",
-        "permissions.sqlite",
-        "content-prefs.sqlite",
-        "cert9.db",
-        "key4.db",
-    ]
-
-    # Dossiers critiques
-    critical_dirs = [
-        "storage",
-    ]
+    print(f"[STORAGE] 🔄 Copie du profil depuis : {source}")
+    
+    # Nettoyage absolu du répertoire pour éviter d'hériter de fichiers corrompus
+    if BROWSER_PROFILE_DIR.exists():
+        shutil.rmtree(str(BROWSER_PROFILE_DIR), ignore_errors=True)
+    ensure_profile_dir()
+    
+    # Copie du dossier Default (qui contient les cookies, etc.)
+    default_dir = source / "Default"
+    dst_default = BROWSER_PROFILE_DIR / "Default"
 
     copied = 0
 
-    for filename in critical_files:
-        src = source / filename
-        dst = BROWSER_PROFILE_DIR / filename
-        if src.exists():
-            try:
-                shutil.copy2(str(src), str(dst))
-                copied += 1
-            except (PermissionError, OSError) as e:
-                # Firefox peut verrouiller certains fichiers
-                print(f"[STORAGE] ⚠️ Copie {filename} échouée: {e}")
+    def robust_copy(src_dir, dst_dir):
+        """Copie récursive qui ignore gracieusement les fichiers verrouillés (ex: Chrome ouvert)"""
+        copied_files = 0
+        os.makedirs(dst_dir, exist_ok=True)
+        for item in os.listdir(src_dir):
+            s = os.path.join(src_dir, item)
+            d = os.path.join(dst_dir, item)
+            if os.path.isdir(s):
+                copied_files += robust_copy(s, d)
+            else:
+                try:
+                    shutil.copy2(s, d)
+                    copied_files += 1
+                except Exception:
+                    pass # Fichier verrouillé par Chrome, on ignore
+        return copied_files
 
-    for dirname in critical_dirs:
-        src = source / dirname
-        dst = BROWSER_PROFILE_DIR / dirname
-        if src.exists():
-            try:
-                if dst.exists():
-                    shutil.rmtree(str(dst), ignore_errors=True)
-                shutil.copytree(str(src), str(dst), dirs_exist_ok=True)
-                copied += 1
-            except (PermissionError, OSError) as e:
-                print(f"[STORAGE] ⚠️ Copie {dirname}/ échouée: {e}")
+    if default_dir.exists():
+        try:
+            # On copie uniquement ce qui est nécessaire pour éviter de copier des Go de données
+            # Network = Cookies, Local Storage = localStorage
+            critical_dirs = ["Network", "Local Storage", "IndexedDB", "Session Storage"]
+            critical_files = ["Cookies", "Web Data", "Login Data"]
+            
+            dst_default.mkdir(exist_ok=True)
+            
+            for d in critical_dirs:
+                src_d = default_dir / d
+                dst_d = dst_default / d
+                if src_d.exists():
+                    copied += robust_copy(str(src_d), str(dst_d))
+                    
+            for f in critical_files:
+                src_f = default_dir / f
+                dst_f = dst_default / f
+                if src_f.exists():
+                    try:
+                        shutil.copy2(str(src_f), str(dst_f))
+                        copied += 1
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[STORAGE] ⚠️ Copie du dossier Default échouée: {e}")
 
-    print(f"[STORAGE] ✅ Profil Firefox synchronisé ({copied} éléments)")
+    print(f"[STORAGE] ✅ Profil Chrome/Edge synchronisé ({copied} éléments)")
     return BROWSER_PROFILE_DIR
 
 
@@ -138,9 +163,18 @@ def warm_up_browser(page) -> None:
 
             # Scrolls aléatoires pour simuler la lecture
             scroll_count = random.randint(1, 3)
+            
+            # Positionner la souris au centre pour activer la roulette
+            try:
+                page.mouse.move(page.viewport_size["width"] / 2, page.viewport_size["height"] / 2)
+            except Exception:
+                pass
+
             for _ in range(scroll_count):
                 scroll_amount = random.randint(200, 600)
-                page.evaluate(f"window.scrollBy(0, {scroll_amount})")
+                page.mouse.wheel(0, scroll_amount)
+                # Fallback de scroll classique si la souris n'a pas focus la frame
+                page.evaluate(f"window.scrollBy({{top: {scroll_amount}, behavior: 'smooth'}})")
                 time.sleep(random.uniform(0.5, 1.5))
 
             # Accepter les cookies Google si présents
@@ -186,16 +220,39 @@ def _accept_google_cookies(page) -> None:
 def get_stealth_config() -> dict:
     """
     Retourne la configuration pour StealthyFetcher
-    avec un fingerprint Firefox cohérent.
+    avec un fingerprint cohérent.
 
     Returns:
         Dict de configuration pour le fetcher.
     """
+    local_app_data = Path(os.environ.get("LOCALAPPDATA", ""))
+    
+    possible_paths = [
+        (local_app_data / "Google" / "Chrome" / "User Data", "chrome"),
+        (local_app_data / "Google" / "Chrome for Testing" / "User Data", "chrome"),
+        (local_app_data / "Microsoft" / "Edge" / "User Data", "msedge"),
+    ]
+    
+    channel = "chrome"
+    for p, ch in possible_paths:
+        if p.exists():
+            channel = ch
+            break
+            
+    # Configuration de Playwright Chromium avec la correction du zoom
+    additional_args = {
+        "channel": channel,
+        "device_scale_factor": 0.8, # Annule le scale trop fort (zoom) appliqué historiquement par Scrapling, 0.8 pour dézoomer
+        "viewport": {"width": 1920, "height": 1080}
+    }
+    
     return {
         "user_data_dir": str(BROWSER_PROFILE_DIR),
         "headless": False,
         "block_images": False,
         "disable_resources": False,
+        "real_chrome": True,
+        "additional_args": additional_args
     }
 
 

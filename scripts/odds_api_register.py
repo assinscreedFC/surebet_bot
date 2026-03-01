@@ -115,7 +115,7 @@ def wait_for_captcha_token(page, timeout: int = 180) -> bool:
                     return True
             except Exception:
                 pass
-        time.sleep(2)
+        page.wait_for_timeout(2000)
     
     print("[ERREUR] Timeout - Captcha non résolu")
     return False
@@ -131,19 +131,19 @@ def method_1_telegram_relay(name: str, email: str):
         """Fonction d'automatisation passée à page_action."""
         try:
             # Attendre le chargement
-            time.sleep(2)
+            page.wait_for_timeout(2000)
             
             # 1. Cliquer sur START
             print("[INFO] Clic sur le bouton START...")
             page.click(SELECTORS["start_button"])
-            time.sleep(2)
+            page.wait_for_timeout(2000)
             
             # 2. Remplir le formulaire
             print(f"[INFO] Remplissage - Nom: {name}, Email: {email}")
             page.fill(SELECTORS["name_input"], name)
-            time.sleep(0.5)
+            page.wait_for_timeout(500)
             page.fill(SELECTORS["email_input"], email)
-            time.sleep(1)
+            page.wait_for_timeout(1000)
             
             # 3. Screenshot + Telegram
             print("[INFO] Préparation du relais Telegram...")
@@ -165,10 +165,10 @@ def method_1_telegram_relay(name: str, email: str):
             # 5. Soumettre
             print("[INFO] Soumission du formulaire...")
             page.click(SELECTORS["subscribe_button"])
-            time.sleep(5)
+            page.wait_for_timeout(5000)
             
             print("[SUCCESS] ✅ Formulaire soumis!")
-            time.sleep(5)
+            page.wait_for_timeout(5000)
             
         except Exception as e:
             print(f"[ERREUR] {e}")
@@ -179,7 +179,7 @@ def method_1_telegram_relay(name: str, email: str):
     fetcher = StealthyFetcher()
     
     print(f"[INFO] Navigation vers {SITE_URL}")
-    fetcher.fetch(
+    StealthyFetcher.fetch(
         SITE_URL,
         headless=False,
         page_action=page_automation,
@@ -200,17 +200,17 @@ def method_2_session_persistence(name: str, email: str):
     def page_automation(page):
         """Fonction d'automatisation avec session persistante."""
         try:
-            time.sleep(2)
+            page.wait_for_timeout(2000)
             
             print("[INFO] Clic sur START...")
             page.click(SELECTORS["start_button"])
-            time.sleep(2)
+            page.wait_for_timeout(2000)
             
             print(f"[INFO] Remplissage - Nom: {name}, Email: {email}")
             page.fill(SELECTORS["name_input"], name)
-            time.sleep(0.5)
+            page.wait_for_timeout(500)
             page.fill(SELECTORS["email_input"], email)
-            time.sleep(1)
+            page.wait_for_timeout(1000)
             
             # Tenter clic sur captcha
             try:
@@ -222,12 +222,12 @@ def method_2_session_persistence(name: str, email: str):
                         y = box["y"] + box["height"] / 2
                         print(f"[INFO] Clic automatique captcha ({x:.0f}, {y:.0f})")
                         page.mouse.click(x, y)
-                        time.sleep(3)
+                        page.wait_for_timeout(3000)
             except Exception as e:
                 print(f"[DEBUG] Clic captcha: {e}")
             
             # Vérifier si résolu
-            time.sleep(2)
+            page.wait_for_timeout(2000)
             token = page.evaluate('document.querySelector("#g-recaptcha-response-2")?.value || ""')
             if token and len(token) > 30:
                 print("[SUCCESS] Captcha résolu automatiquement!")
@@ -238,10 +238,10 @@ def method_2_session_persistence(name: str, email: str):
             
             print("[INFO] Soumission...")
             page.click(SELECTORS["subscribe_button"])
-            time.sleep(5)
+            page.wait_for_timeout(5000)
             
             print("[SUCCESS] ✅ Formulaire soumis!")
-            time.sleep(5)
+            page.wait_for_timeout(5000)
             
         except Exception as e:
             print(f"[ERREUR] {e}")
@@ -254,12 +254,13 @@ def method_2_session_persistence(name: str, email: str):
     print(f"[INFO] Navigation vers {SITE_URL}")
     print(f"[INFO] Profil persistant: {USER_DATA_DIR}")
     
-    fetcher.fetch(
+    StealthyFetcher.fetch(
         SITE_URL,
         headless=False,
         page_action=page_automation,
         network_idle=True,
-        wait=10000
+        wait=10000,
+        user_data_dir=USER_DATA_DIR
     )
     print("[INFO] Terminé - Profil sauvegardé")
 

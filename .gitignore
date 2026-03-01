@@ -27,7 +27,13 @@ MANIFEST
 venv/
 ENV/
 env/
-
+test_dir/
+surebet_bot/browser_profile/
+surebet_bot/api_keys.txt
+surebet_bot/surebet.db
+surebet_bot/*.log
+surebet_bot/captcha_temp/
+surebet_bot/*.txt/
 # IDEs
 .vscode/
 .idea/
