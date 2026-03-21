@@ -126,15 +126,13 @@ class SmartScheduler:
         prioritized = {}
         remaining = dict(sports)
 
-        # D'abord les sports qui matchent les patterns (dans l'ordre des patterns)
+        # Uniquement les sports qui matchent les patterns du créneau actuel
+        # (les sports hors-pattern sont ignorés pour économiser le quota API)
         for pattern in patterns:
             for sport_key, display in list(remaining.items()):
                 if fnmatch.fnmatch(sport_key, pattern):
                     prioritized[sport_key] = display
                     del remaining[sport_key]
-
-        # Puis le reste
-        prioritized.update(remaining)
 
         return prioritized
 

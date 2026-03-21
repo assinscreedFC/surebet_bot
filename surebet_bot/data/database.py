@@ -8,6 +8,24 @@ from dataclasses import dataclass
 
 
 @dataclass
+class ValueBetRecord:
+    """Enregistrement d'un value bet."""
+    id: Optional[int]
+    detected_at: datetime
+    sport: str
+    league: str
+    match: str
+    market: str
+    outcome: str
+    bookmaker: str
+    odds: float
+    consensus_prob: float
+    value_pct: float
+    bookmakers_count: int
+    notified: bool = True
+
+
+@dataclass
 class SurebetRecord:
     """Enregistrement d'un surebet."""
     id: Optional[int]
@@ -103,12 +121,31 @@ class Database:
                 requests_remaining INTEGER
             );
             
+            -- Table des value bets détectés
+            CREATE TABLE IF NOT EXISTS value_bets (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                detected_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                sport            TEXT NOT NULL,
+                league           TEXT NOT NULL,
+                match            TEXT NOT NULL,
+                market           TEXT NOT NULL,
+                outcome          TEXT NOT NULL,
+                bookmaker        TEXT NOT NULL,
+                odds             REAL NOT NULL,
+                consensus_prob   REAL NOT NULL,
+                value_pct        REAL NOT NULL,
+                bookmakers_count INTEGER NOT NULL,
+                notified         BOOLEAN DEFAULT 1
+            );
+
             -- Index pour les requêtes fréquentes
             CREATE INDEX IF NOT EXISTS idx_surebets_date ON surebets(detected_at);
             CREATE INDEX IF NOT EXISTS idx_surebets_sport ON surebets(sport);
             CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);
             CREATE INDEX IF NOT EXISTS idx_raw_odds_match ON raw_odds(match);
             CREATE INDEX IF NOT EXISTS idx_raw_odds_timestamp ON raw_odds(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_value_bets_date  ON value_bets(detected_at);
+            CREATE INDEX IF NOT EXISTS idx_value_bets_match ON value_bets(match);
         """)
         await self._conn.commit()
     
@@ -290,6 +327,38 @@ class Database:
         columns = [d[0] for d in cursor.description]
         return [dict(zip(columns, row)) for row in rows]
     
+    # === VALUE BETS ===
+
+    async def save_value_bet(self, record: ValueBetRecord) -> int:
+        """Sauvegarde un value bet et retourne son ID."""
+        cursor = await self._conn.execute("""
+            INSERT INTO value_bets
+            (detected_at, sport, league, match, market, outcome, bookmaker,
+             odds, consensus_prob, value_pct, bookmakers_count, notified)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            record.detected_at, record.sport, record.league, record.match,
+            record.market, record.outcome, record.bookmaker, record.odds,
+            record.consensus_prob, record.value_pct, record.bookmakers_count,
+            record.notified
+        ))
+        await self._conn.commit()
+        return cursor.lastrowid
+
+    async def get_value_bets(self, limit: int = 100, sport: str = None) -> list[dict]:
+        """Récupère les derniers value bets."""
+        query = "SELECT * FROM value_bets"
+        params = []
+        if sport:
+            query += " WHERE sport = ?"
+            params.append(sport)
+        query += " ORDER BY detected_at DESC LIMIT ?"
+        params.append(limit)
+        cursor = await self._conn.execute(query, params)
+        rows = await cursor.fetchall()
+        columns = [d[0] for d in cursor.description]
+        return [dict(zip(columns, row)) for row in rows]
+
     # === SCANS (Statistiques de scan) ===
     
     async def save_scan(self, sports_scanned: int, events_found: int, 

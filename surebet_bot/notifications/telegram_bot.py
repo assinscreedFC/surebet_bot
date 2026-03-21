@@ -37,9 +37,11 @@ class TelegramBot:
         url = self.API_URL.format(token=self.token, method=method)
         
         try:
-            async with session.post(url, data=data) as resp:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with session.post(url, data=data, timeout=timeout) as resp:
                 return resp.status == 200
-        except Exception:
+        except Exception as e:
+            print(f"[Telegram] ❌ Erreur appel API ({method}): {e}")
             return False
     
     async def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
@@ -59,40 +61,97 @@ class TelegramBot:
         outcomes: list[dict],
         profit_pct: float,
         profit_base_100: float,
-        stakes: list[float]
+        stakes: list[float],
+        detected_at: str = None
     ) -> bool:
-        """
-        Envoie une alerte Surebet formatée.
-        
-        Format VDO Group avec profit en % et base 100.
-        """
+        """Envoie une alerte Surebet avec liens bookmakers, mise totale et horodatage."""
+        from datetime import datetime
+        from constants import BOOKMAKER_URLS
+
+        ts = detected_at or datetime.now().strftime("%H:%M:%S")
+        mise_totale = sum(stakes)
+
         lines = [
-            "🚀 <b>OPPORTUNITÉ SUREBET DETECTÉE</b> 🚀",
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            f"🏆 <b>Sport</b> : {sport} - {league}",
-            f"⚽ <b>Match</b> : {match}",
-            f"📊 <b>Marché</b> : {market}",
+            f"⚡ <b>SUREBET</b> — {league}",
+            f"⚽ <b>{match}</b>  |  {market}",
             "",
         ]
-        
+
         for i, outcome in enumerate(outcomes):
             stake = stakes[i] if i < len(stakes) else 0
+            bk = outcome['bookmaker']
+            url = BOOKMAKER_URLS.get(bk, "")
+            bk_link = f'<a href="{url}">{bk}</a>' if url else f"<b>{bk}</b>"
             lines.append(
-                f"✅ <b>{outcome['bookmaker']}</b> | {outcome['name']} | "
-                f"<code>{outcome['odds']:.2f}</code> | Mise: <code>{stake:.2f}€</code>"
+                f"🎯 {bk_link}  →  <b>{outcome['name']}</b>  @  "
+                f"<code>{outcome['odds']:.2f}</code>  |  <code>{stake:.2f}€</code>"
             )
-        
+
         lines.extend([
             "",
-            f"📈 <b>Profit</b> : <code>{profit_pct:.2f}%</code>",
-            f"💰 <b>Gain base 100€</b> : <code>{profit_base_100:.2f}€</code>",
-            f"🎯 <b>Retour garanti</b> : <code>{100 + profit_base_100:.2f}€</code>",
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "<b>VDO Group</b>"
+            f"💵 Mise totale : <code>{mise_totale:.2f}€</code>",
+            f"📈 Profit : <code>+{profit_pct:.2f}%</code>  |  "
+            f"Gain : <code>+{profit_base_100:.2f}€</code>  |  "
+            f"Retour : <code>{100 + profit_base_100:.2f}€</code>",
+            "",
         ])
-        
+
+        # Liens rapides cliquables vers chaque bookmaker
+        links = []
+        seen = set()
+        for outcome in outcomes:
+            bk = outcome['bookmaker']
+            if bk not in seen:
+                seen.add(bk)
+                url = BOOKMAKER_URLS.get(bk, "")
+                if url:
+                    links.append(f'<a href="{url}">{bk} ↗</a>')
+        if links:
+            lines.append("  ".join(links))
+
+        lines.append(f"⏱ <i>{ts}</i>")
+
         return await self.send_message("\n".join(lines))
     
+    async def send_value_bet_alert(
+        self,
+        sport: str,
+        league: str,
+        match: str,
+        market: str,
+        outcome: str,
+        bookmaker: str,
+        odds: float,
+        consensus_prob: float,
+        value_pct: float,
+        bookmakers_count: int,
+        detected_at: str = None
+    ) -> bool:
+        """Envoie une alerte Value Bet sur Telegram."""
+        from datetime import datetime
+        from constants import BOOKMAKER_URLS
+
+        ts = detected_at or datetime.now().strftime("%H:%M:%S")
+        url = BOOKMAKER_URLS.get(bookmaker, "")
+        bk_link = f'<a href="{url}">{bookmaker}</a>' if url else f"<b>{bookmaker}</b>"
+        fair_odds = round(1 / consensus_prob, 2) if consensus_prob > 0 else 0
+
+        lines = [
+            f"📊 <b>VALUE BET</b> — {league}",
+            f"⚽ <b>{match}</b>  |  {market}",
+            "",
+            f"🎯 Sélection : <b>{outcome}</b>",
+            f"📌 Bookmaker : {bk_link}",
+            f"💰 Cote affichée : <code>{odds:.2f}</code>",
+            f"📐 Cote juste (consensus) : <code>{fair_odds:.2f}</code>",
+            f"📊 Consensus sur <code>{bookmakers_count}</code> bookmakers",
+            "",
+            f"✅ Value : <code>+{value_pct:.1f}%</code>",
+            "",
+            f"⏱ <i>{ts}</i>",
+        ]
+        return await self.send_message("\n".join(lines))
+
     async def send_status(self, status: dict) -> bool:
         """Envoie un rapport de status."""
         lines = [

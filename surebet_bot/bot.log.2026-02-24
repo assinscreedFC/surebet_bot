@@ -1,0 +1,9 @@
+[2026-02-24 22:24:07] INFO | surebet_bot | ==================================================
+[2026-02-24 22:24:07] INFO | surebet_bot | Démarrage du Bot Surebet VDO Group
+[2026-02-24 22:24:07] INFO | surebet_bot | ==================================================
+[2026-02-24 22:24:07] INFO | surebet_bot | Clés API chargées: 11
+[2026-02-24 22:24:07] INFO | surebet_bot | Base de données connectée
+[2026-02-24 22:24:07] INFO | surebet_bot | Sports configurés: 19
+[2026-02-24 22:24:07] INFO | surebet_bot | Bookmakers: betclic, unibet_fr, winamax_fr, pmu, parionssport, netbet_fr, pinnacle, betway, bet365, 1xbet
+[2026-02-24 22:24:07] INFO | surebet_bot | Scan interval: 10s
+[2026-02-24 22:32:00] INFO | surebet_bot | Bot arrêté proprement

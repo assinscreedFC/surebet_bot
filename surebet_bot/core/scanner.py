@@ -2,16 +2,29 @@
 # Intègre le SmartScheduler pour un scan adaptatif
 
 import asyncio
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 from dataclasses import dataclass, field
 from collections import deque
 
 from core.odds_client import OddsClient
-from core.calculator import calculate_arbitrage, SurebetResult
+from core.calculator import calculate_arbitrage, calculate_value_bets, SurebetResult, ValueBet
 from core.api_manager import APIManager
 from core.scheduler import SmartScheduler
 from notifications.telegram_bot import TelegramBot
+from constants import MIN_PROFIT_PCT, VALUE_BET_MIN_THRESHOLD, VALUE_BET_MIN_BOOKMAKERS, VALUE_BET_COOLDOWN_MINUTES
+
+
+@dataclass
+class ValueBetOpportunity:
+    """Un value bet détecté."""
+    sport: str
+    league: str
+    match: str
+    market: str
+    value_bet: ValueBet
+    detected_at: datetime = field(default_factory=datetime.now)
 
 
 @dataclass
@@ -65,6 +78,7 @@ class SurebetScanner:
         # Limiter à 1000 surebets en mémoire pour éviter la croissance infinie
         self.surebets_found: deque = deque(maxlen=1000)
         self.cooldown_cache: dict[str, datetime] = {}
+        self._cooldown_lock = threading.Lock()
         
         # Stats
         self.scans_count = 0
@@ -89,32 +103,27 @@ class SurebetScanner:
             self.client = OddsClient(key, request_delay=self.request_delay)
         return self.client
     
-    def _is_in_cooldown(self, identifier: str) -> bool:
-        """Vérifie si une opportunité est en cooldown."""
-        if identifier not in self.cooldown_cache:
+    def _check_and_add_cooldown(self, identifier: str) -> bool:
+        """Vérifie le cooldown et l'ajoute atomiquement.
+
+        Retourne True si l'opportunité est en cooldown (ne pas notifier),
+        False si elle n'était pas en cooldown (cooldown ajouté, notifier).
+        """
+        with self._cooldown_lock:
+            if identifier in self.cooldown_cache:
+                if datetime.now() <= self.cooldown_cache[identifier]:
+                    return True  # En cooldown
+                del self.cooldown_cache[identifier]
+            self.cooldown_cache[identifier] = datetime.now() + timedelta(minutes=self.cooldown_minutes)
             return False
-        
-        expires = self.cooldown_cache[identifier]
-        if datetime.now() > expires:
-            del self.cooldown_cache[identifier]
-            return False
-        
-        return True
-    
-    def _add_cooldown(self, identifier: str):
-        """Ajoute une opportunité au cooldown."""
-        expires = datetime.now() + timedelta(minutes=self.cooldown_minutes)
-        self.cooldown_cache[identifier] = expires
-    
+
     def _cleanup_cooldown_cache(self):
         """Nettoie le cache de cooldown des entrées expirées."""
-        now = datetime.now()
-        expired = [
-            key for key, expires in self.cooldown_cache.items()
-            if now > expires
-        ]
-        for key in expired:
-            del self.cooldown_cache[key]
+        with self._cooldown_lock:
+            now = datetime.now()
+            expired = [key for key, expires in self.cooldown_cache.items() if now > expires]
+            for key in expired:
+                del self.cooldown_cache[key]
     
     async def _scan_sport(self, sport_key: str, sport_name: str, markets: str = "h2h,totals"):
         """
@@ -130,7 +139,7 @@ class SurebetScanner:
         if client is None:
             await self._handle_error("Aucune clé API disponible!")
             self.api_exhausted = True
-            return []
+            return [], []
         
         response = await client.get_odds(
             sport=sport_key,
@@ -181,18 +190,19 @@ class SurebetScanner:
             else:
                 # Autre erreur - notifier sur Telegram
                 await self._handle_error(f"Erreur API ({sport_name}): {error_msg}")
-            
-            return []
+
+            return [], []
         
         surebets = []
+        value_bets = []
         raw_odds_batch = []  # Pour enregistrer toutes les cotes
-        
+
         for event in response.data or []:
             match_name = f"{event['home_team']} vs {event['away_team']}"
-            
+
             # Collecter toutes les cotes par marché
             markets_data = self._extract_markets(event)
-            
+
             # Enregistrer toutes les cotes brutes pour analyse
             for market_key, market_data in markets_data.items():
                 for outcome_name, bookmaker_odds in market_data.items():
@@ -205,7 +215,7 @@ class SurebetScanner:
                             "outcome": outcome_name,
                             "odds": odds_value
                         })
-            
+
             # Chercher les surebets pour chaque marché
             for market_key, market_data in markets_data.items():
                 surebet = self._find_arbitrage(
@@ -215,14 +225,25 @@ class SurebetScanner:
                     league=sport_name,
                     match=match_name
                 )
-                
+
                 if surebet:
                     surebets.append(surebet)
-        
+
+            # Chercher les value bets (h2h uniquement — consensus fiable)
+            if "h2h" in markets_data:
+                vbs = self._find_value_bets(
+                    market_data=markets_data["h2h"],
+                    market_key="h2h",
+                    sport=sport_name,
+                    league=sport_name,
+                    match=match_name
+                )
+                value_bets.extend(vbs)
+
         # Sauvegarder toutes les cotes brutes dans la DB
         await self._save_raw_odds_batch(raw_odds_batch)
-        
-        return surebets
+
+        return surebets, value_bets
     
     async def _handle_error(self, error_msg: str):
         """Gère une erreur: log + notification Telegram."""
@@ -425,40 +446,41 @@ class SurebetScanner:
                 if side in lines[line]:
                     lines[line][side].extend(bookmaker_odds)
         
-        # Chercher un arbitrage pour chaque ligne
+        # Trouver la ligne la plus profitable parmi toutes les lignes en arbitrage
+        best_line = None  # (line, result, best_over, best_under)
         for line, sides in lines.items():
             if not sides["Over"] or not sides["Under"]:
                 continue
-            
-            # Meilleure cote Over
+
             best_over = max(sides["Over"], key=lambda x: x[1])
-            # Meilleure cote Under
             best_under = max(sides["Under"], key=lambda x: x[1])
-            
-            # Calculer l'arbitrage
+
             result = calculate_arbitrage([best_over[1], best_under[1]])
-            
-            if result.is_surebet:
-                identifier = f"{match}_{market_key}_{line}"
-                
-                if self._is_in_cooldown(identifier):
-                    continue
-                
-                self._add_cooldown(identifier)
-                
-                return SurebetOpportunity(
-                    sport=sport,
-                    league=league,
-                    match=match,
-                    market=f"Totals {line}",
-                    outcomes=[
-                        {"bookmaker": best_over[0], "name": f"Over {line}", "odds": best_over[1]},
-                        {"bookmaker": best_under[0], "name": f"Under {line}", "odds": best_under[1]}
-                    ],
-                    result=result
-                )
-        
-        return None
+
+            if result.is_surebet and result.profit_pct >= MIN_PROFIT_PCT:
+                if best_line is None or result.profit_pct > best_line[1].profit_pct:
+                    best_line = (line, result, best_over, best_under)
+
+        if best_line is None:
+            return None
+
+        line, result, best_over, best_under = best_line
+        # Cooldown au niveau match+marché (sans la ligne) pour éviter le spam multi-lignes
+        identifier = f"{match}_{market_key}"
+        if self._check_and_add_cooldown(identifier):
+            return None
+
+        return SurebetOpportunity(
+            sport=sport,
+            league=league,
+            match=match,
+            market=f"Totals {line}",
+            outcomes=[
+                {"bookmaker": best_over[0], "name": f"Over {line}", "odds": best_over[1]},
+                {"bookmaker": best_under[0], "name": f"Under {line}", "odds": best_under[1]}
+            ],
+            result=result
+        )
     
     def _find_h2h_arbitrage(
         self,
@@ -497,14 +519,12 @@ class SurebetScanner:
         odds_values = [b["odds"] for b in best_odds]
         result = calculate_arbitrage(odds_values)
         
-        if result.is_surebet:
+        if result.is_surebet and result.profit_pct >= MIN_PROFIT_PCT:
             identifier = f"{match}_{market_key}"
-            
-            if self._is_in_cooldown(identifier):
+
+            if self._check_and_add_cooldown(identifier):
                 return None
-            
-            self._add_cooldown(identifier)
-            
+
             return SurebetOpportunity(
                 sport=sport,
                 league=league,
@@ -552,12 +572,13 @@ class SurebetScanner:
                 except ValueError:
                     continue
         
-        # Chercher un arbitrage pour chaque ligne
+        # Trouver le spread le plus profitable parmi tous les spreads en arbitrage
+        best_spread = None  # (line, result, best_odds)
         for line, teams in lines.items():
             team_names = list(teams.keys())
             if len(team_names) < 2:
                 continue
-            
+
             best_odds = []
             for team in team_names:
                 if teams[team]:
@@ -567,35 +588,143 @@ class SurebetScanner:
                         "bookmaker": best[0],
                         "odds": best[1]
                     })
-            
+
             if len(best_odds) < 2:
                 continue
-            
+
             odds_values = [b["odds"] for b in best_odds]
             result = calculate_arbitrage(odds_values)
-            
-            if result.is_surebet:
-                identifier = f"{match}_{market_key}_{line}"
-                
-                if self._is_in_cooldown(identifier):
-                    continue
-                
-                self._add_cooldown(identifier)
-                
-                return SurebetOpportunity(
-                    sport=sport,
-                    league=league,
-                    match=match,
-                    market=f"Spread {line}",
-                    outcomes=[
-                        {"bookmaker": b["bookmaker"], "name": b["name"], "odds": b["odds"]}
-                        for b in best_odds
-                    ],
-                    result=result
-                )
-        
-        return None
+
+            if result.is_surebet and result.profit_pct >= MIN_PROFIT_PCT:
+                if best_spread is None or result.profit_pct > best_spread[1].profit_pct:
+                    best_spread = (line, result, best_odds)
+
+        if best_spread is None:
+            return None
+
+        line, result, best_odds = best_spread
+        # Cooldown au niveau match+marché (sans la valeur du spread) pour éviter le spam
+        identifier = f"{match}_{market_key}"
+        if self._check_and_add_cooldown(identifier):
+            return None
+
+        return SurebetOpportunity(
+            sport=sport,
+            league=league,
+            match=match,
+            market=f"Spread {line}",
+            outcomes=[
+                {"bookmaker": b["bookmaker"], "name": b["name"], "odds": b["odds"]}
+                for b in best_odds
+            ],
+            result=result
+        )
     
+    def _find_value_bets(
+        self,
+        market_data: dict,
+        market_key: str,
+        sport: str,
+        league: str,
+        match: str
+    ) -> list[ValueBetOpportunity]:
+        """
+        Cherche des value bets dans un marché h2h.
+
+        Limité à h2h : outcomes exhaustifs et non-ambigus (pas de lignes multiples).
+        Un bookmaker est "complet" s'il a coté TOUS les outcomes du marché
+        (nécessaire pour calculer correctement sa marge et la fair_prob).
+        """
+        outcomes = list(market_data.keys())
+        if len(outcomes) < 2:
+            return []
+
+        # Construire {bookmaker: [odds_outcome1, odds_outcome2, ...]}
+        all_outcomes_by_bookmaker: dict[str, list[float]] = {}
+        for outcome_name in outcomes:
+            for bookmaker, odds in market_data[outcome_name]:
+                all_outcomes_by_bookmaker.setdefault(bookmaker, []).append(odds)
+
+        # Garder uniquement les bookmakers ayant coté tous les outcomes
+        complete_bookmakers = {
+            bk: odds_list
+            for bk, odds_list in all_outcomes_by_bookmaker.items()
+            if len(odds_list) == len(outcomes)
+        }
+
+        opportunities = []
+        for outcome_name in outcomes:
+            filtered_bk_odds = [
+                (bk, odds) for bk, odds in market_data[outcome_name]
+                if bk in complete_bookmakers
+            ]
+
+            try:
+                value_bets = calculate_value_bets(
+                    outcome_name=outcome_name,
+                    bookmaker_odds=filtered_bk_odds,
+                    all_outcomes_by_bookmaker=complete_bookmakers,
+                    min_bookmakers=VALUE_BET_MIN_BOOKMAKERS,
+                    min_threshold=VALUE_BET_MIN_THRESHOLD
+                )
+            except ValueError:
+                continue
+
+            for vb in value_bets:
+                identifier = f"vb_{match}_{market_key}_{outcome_name}_{vb.bookmaker}"
+                with self._cooldown_lock:
+                    if identifier in self.cooldown_cache:
+                        if datetime.now() <= self.cooldown_cache[identifier]:
+                            continue
+                        del self.cooldown_cache[identifier]
+                    self.cooldown_cache[identifier] = (
+                        datetime.now() + timedelta(minutes=VALUE_BET_COOLDOWN_MINUTES)
+                    )
+                opportunities.append(ValueBetOpportunity(
+                    sport=sport, league=league, match=match,
+                    market=market_key, value_bet=vb
+                ))
+
+        return opportunities
+
+    async def _notify_value_bet(self, opp: ValueBetOpportunity):
+        """Envoie une notification pour un value bet."""
+        vb = opp.value_bet
+        await self.telegram.send_value_bet_alert(
+            sport=opp.sport,
+            league=opp.league,
+            match=opp.match,
+            market=opp.market,
+            outcome=vb.outcome_name,
+            bookmaker=vb.bookmaker,
+            odds=vb.odds,
+            consensus_prob=vb.consensus_prob,
+            value_pct=vb.value_pct,
+            bookmakers_count=vb.bookmakers_count,
+            detected_at=opp.detected_at.strftime("%H:%M:%S")
+        )
+
+    async def _save_value_bet(self, opp: ValueBetOpportunity):
+        """Sauvegarde un value bet en base de données."""
+        if not self.db:
+            return
+        from data.database import ValueBetRecord
+        vb = opp.value_bet
+        await self.db.save_value_bet(ValueBetRecord(
+            id=None,
+            detected_at=opp.detected_at,
+            sport=opp.sport,
+            league=opp.league,
+            match=opp.match,
+            market=opp.market,
+            outcome=vb.outcome_name,
+            bookmaker=vb.bookmaker,
+            odds=vb.odds,
+            consensus_prob=vb.consensus_prob,
+            value_pct=vb.value_pct,
+            bookmakers_count=vb.bookmakers_count
+        ))
+
     async def _notify_surebet(self, surebet: SurebetOpportunity):
         """Envoie une notification pour un surebet."""
         await self.telegram.send_surebet_alert(
@@ -606,7 +735,8 @@ class SurebetScanner:
             outcomes=surebet.outcomes,
             profit_pct=surebet.result.profit_pct,
             profit_base_100=surebet.result.profit_base_100,
-            stakes=surebet.result.stakes
+            stakes=surebet.result.stakes,
+            detected_at=surebet.detected_at.strftime("%H:%M:%S")
         )
     
     async def _save_surebet(self, surebet: SurebetOpportunity):
@@ -643,16 +773,17 @@ class SurebetScanner:
         # Nettoyer le cache de cooldown avant chaque scan
         self._cleanup_cooldown_cache()
         all_surebets = []
-        
+        all_value_bets = []
+
         # Prioriser les sports via le scheduler
         prioritized_sports = self.scheduler.prioritize_sports(sports)
-        
+
         for sport_key, sport_name in prioritized_sports.items():
             # Vérifier si on doit arrêter
             if self.waiting_for_key or self.force_stop:
                 print(f"[Scanner] ⛔ Pause du scan")
                 break
-            
+
             try:
                 # Déterminer les marchés selon le sport
                 if "soccer" in sport_key:
@@ -661,20 +792,26 @@ class SurebetScanner:
                     markets = "h2h,spreads,totals"
                 else:
                     markets = "h2h"
-                
-                surebets = await self._scan_sport(sport_key, sport_name, markets)
+
+                surebets, value_bets = await self._scan_sport(sport_key, sport_name, markets)
                 all_surebets.extend(surebets)
-                
+                all_value_bets.extend(value_bets)
+
             except Exception as e:
                 error_msg = f"Exception scan {sport_key}: {e}"
                 await self._handle_error(error_msg)
-        
+
         # Notifier et sauvegarder les nouveaux surebets
         for surebet in all_surebets:
             self.surebets_found.append(surebet)
             await self._notify_surebet(surebet)
             await self._save_surebet(surebet)
-        
+
+        # Notifier et sauvegarder les value bets
+        for opp in all_value_bets:
+            await self._notify_value_bet(opp)
+            await self._save_value_bet(opp)
+
         return all_surebets
     
     async def run(self, sports: dict[str, str]):

@@ -34,14 +34,14 @@ BOOKMAKERS = [
     "betway",            # Betway (UK)
     "bet365",            # Bet365
     "onexbet",           # 1xBet (EU)
-    "winamax_de",        # Winamax (DE)
-    "tipico_de",         # Tipico (DE)
+    #"winamax_de",        # Winamax (DE)
+    #"tipico_de",         # Tipico (DE)
     "mybookieag",        # MyBookie
     "sport888",          # 888sport
     "betfair_ex_eu",     # Betfair Exchange (EU)
-    "unibet_se",         # Unibet (SE)
-    "leovegas_se",       # LeoVegas (SE)
-    "unibet_nl",         # Unibet (NL)
+    #"unibet_se",         # Unibet (SE)
+    #"leovegas_se",       # LeoVegas (SE)
+    #"unibet_nl",         # Unibet (NL)
     "betsson",           # Betsson
 ]
 
@@ -73,24 +73,16 @@ BOOKMAKER_DISPLAY_NAMES = {
 # ── SPORTS & LIGUES ──────────────────────────────────────────────
 
 FOOTBALL_LEAGUES = {
-    "soccer_france_ligue_one":               "Ligue 1",
+    # Top 5 ligues européennes
     "soccer_epl":                            "Premier League",
-    "soccer_spain_la_liga":                   "La Liga",
-    "soccer_italy_serie_a":                   "Serie A",
-    "soccer_germany_bundesliga":              "Bundesliga",
-    "soccer_brazil_campeonato":               "Brasileirão",
-    "soccer_turkey_super_league":             "Superlig",
-    "soccer_portugal_primeira_liga":          "Liga Portugal",
-    "soccer_uefa_champs_league":              "Champions League",
-    "soccer_uefa_europa_league":              "Europa League",
-    "soccer_uefa_europa_conference_league":   "Conference League",
-    "soccer_fa_cup":                          "FA Cup",
-    "soccer_england_efl_cup":                 "Carabao Cup",
-    "soccer_spain_copa_del_rey":              "Copa del Rey",
-    "soccer_france_coupe_de_france":          "Coupe de France",
-    "soccer_italy_coppa_italia":              "Coupe d'Italie",
-    "soccer_germany_dfb_pokal":              "DFB Pokal",
-    "soccer_usa_mls":                         "MLS",
+    "soccer_spain_la_liga":                  "La Liga",
+    "soccer_italy_serie_a":                  "Serie A",
+    "soccer_germany_bundesliga":             "Bundesliga",
+    "soccer_france_ligue_one":               "Ligue 1",
+    # Compétitions européennes majeures
+    "soccer_uefa_champs_league":             "Champions League",
+    "soccer_uefa_europa_league":             "Europa League",
+    "soccer_uefa_europa_conference_league":  "Conference League",
 }
 
 BASKETBALL_LEAGUES = {
@@ -157,8 +149,29 @@ NFL_PLAYER_PROPS = [
 # ── TIMINGS ──────────────────────────────────────────────────────
 
 SCAN_INTERVAL = 10       # secondes entre chaque cycle complet
-REQUEST_DELAY = 3        # secondes entre chaque requête API (rate limit)
+REQUEST_DELAY = 10       # secondes entre chaque requête API (rate limit)
 COOLDOWN_MINUTES = 5     # anti-doublon d'alertes (minutes)
+
+
+# ── LIENS BOOKMAKERS ─────────────────────────────────────────────
+# URLs vers la section sport de chaque bookmaker (pour les alertes Telegram cliquables)
+
+BOOKMAKER_URLS = {
+    "Betclic":        "https://www.betclic.fr/football-s1",
+    "Unibet":         "https://www.unibet.fr/paris-sportifs",
+    "Winamax":        "https://www.winamax.fr/paris-sportifs",
+    "PMU":            "https://www.pmu.fr/sport/football",
+    "Parions Sport":  "https://www.enligne.parionssport.fdj.fr",
+    "Betway":         "https://betway.com/fr/sports",
+    "Bet365":         "https://www.bet365.com",
+    "1xBet":          "https://1xbet.com/fr/sport/football",
+    "Betsson":        "https://www.betsson.com/fr-fr/paris-sportifs",
+    "NetBet":         "https://www.netbet.fr/football",
+    "Betfair":        "https://www.betfair.fr/exchange",
+    "888sport":       "https://www.888sport.fr",
+    "Pinnacle":       "https://www.pinnacle.com/fr/soccer/matchups",
+    "MyBookie":       "https://mybookie.ag",
+}
 
 
 # ── DASHBOARD ────────────────────────────────────────────────────
@@ -169,6 +182,12 @@ DASHBOARD_PORT = 8501
 
 # ── DIVERS ───────────────────────────────────────────────────────
 
+MIN_PROFIT_PCT = 1.0         # Profit minimum requis (%) pour envoyer une alerte
+
+# ── VALUE BET ─────────────────────────────────────────────────────
+VALUE_BET_MIN_THRESHOLD    = 0.03   # 3% de value minimum pour alerter
+VALUE_BET_MIN_BOOKMAKERS   = 4      # Nb min de bookmakers pour consensus fiable
+VALUE_BET_COOLDOWN_MINUTES = 10     # Cooldown value bets (plus long que surebets)
 API_KEY_LENGTH = 32          # Longueur attendue d'une clé API
 MAX_RETRY_BACKOFF_MIN = 10   # Backoff max entre retries (minutes)
 SUREBET_HISTORY_LIMIT = 1000 # Nombre max de surebets en mémoire
@@ -189,12 +208,26 @@ SCHEDULE_SLOTS = {
         "label": "🔴 LIVE Week-end",
         "description": "Volume massif de matchs en Live",
     },
+    "nfl_night": {
+        "days": [0, 3, 6],             # lundi, jeudi, dimanche (prime time NFL USA = 1h-4h CET)
+        "hours": (1, 4),               # 01h00 - 04h00 CET
+        "scan_interval": 7,            # Scan rapide
+        "label": "🏈 NFL Nuit",
+        "description": "Matchs NFL en direct depuis les USA",
+    },
     "evening_weekday": {
         "days": [0, 1, 2, 3, 4],       # lundi-vendredi
         "hours": (19, 21),             # 19h00 - 21h00
         "scan_interval": 5,            # Scan agressif
         "label": "🌙 Soir Semaine",
         "description": "Matchs européens et ajustements dernière minute",
+    },
+    "late_evening": {
+        "days": [0, 1, 2, 3, 4],       # lundi-vendredi
+        "hours": (21, 23),             # 21h00 - 23h00 : fin CL + tip-off NBA
+        "scan_interval": 7,            # Scan rapide
+        "label": "🌃 Soirée Tardive",
+        "description": "Fin des matchs européens + début NBA",
     },
     "boosted_odds": {
         "days": [0, 1, 2, 3, 4, 5, 6], # tous les jours
@@ -222,7 +255,9 @@ SCHEDULE_SLOTS = {
 # Ordre d'évaluation des créneaux (du plus prioritaire au moins)
 SLOT_PRIORITY = [
     "live_weekend",
+    "nfl_night",
     "evening_weekday",
+    "late_evening",
     "boosted_odds",
     "morning_realignment",
     "default",
@@ -231,10 +266,17 @@ SLOT_PRIORITY = [
 # Sports prioritaires par créneau (préfixes avec * wildcard)
 SPORT_PRIORITY = {
     "live_weekend":        ["soccer_*", "basketball_*", "tennis_*"],
-    "evening_weekday":     ["soccer_*", "basketball_*"],
-    "boosted_odds":        ["soccer_*"],
-    "morning_realignment": ["basketball_*", "americanfootball_*", "soccer_*"],
-    "default":             ["*"],
+    "nfl_night":           ["americanfootball_*", "basketball_*"],
+    "evening_weekday":     ["soccer_*", "basketball_*", "tennis_*"],
+    "late_evening":        ["soccer_*", "basketball_*"],
+    "boosted_odds":        ["soccer_*", "tennis_*"],
+    "morning_realignment": ["soccer_*", "basketball_*", "americanfootball_*"],
+    # Hors-créneau : seulement les ligues les plus liquides pour économiser le quota
+    "default": [
+        "soccer_epl", "soccer_spain_la_liga", "soccer_italy_serie_a",
+        "soccer_germany_bundesliga", "soccer_france_ligue_one",
+        "soccer_uefa_champs_league", "basketball_nba", "americanfootball_nfl",
+    ],
 }
 
 # Seuil en minutes avant le match pour l'alerte composition

@@ -5,6 +5,17 @@ from typing import Optional
 
 
 @dataclass
+class ValueBet:
+    """Un value bet détecté sur un outcome précis."""
+    outcome_name: str
+    bookmaker: str
+    odds: float
+    consensus_prob: float   # Probabilité consensuelle (moyenne fair)
+    value_pct: float        # (odds × consensus_prob - 1) × 100
+    bookmakers_count: int   # Nb bookmakers ayant participé au consensus
+
+
+@dataclass
 class SurebetResult:
     """Résultat d'un calcul d'arbitrage."""
     is_surebet: bool
@@ -149,6 +160,69 @@ def format_surebet_message(
     ])
     
     return "\n".join(lines)
+
+
+def calculate_value_bets(
+    outcome_name: str,
+    bookmaker_odds: list[tuple[str, float]],
+    all_outcomes_by_bookmaker: dict[str, list[float]],
+    min_bookmakers: int = 4,
+    min_threshold: float = 0.03
+) -> list[ValueBet]:
+    """
+    Détecte les value bets pour un outcome donné.
+
+    Algorithme :
+    1. Pour chaque bookmaker (qui a coté TOUS les outcomes du marché),
+       calculer fair_prob = (1/cote_outcome) / sum(1/cote_i for all outcomes)
+    2. consensus_prob = moyenne des fair_probs
+    3. value = (cote × consensus_prob) - 1
+    4. Retourner si value > min_threshold
+
+    Args:
+        outcome_name: Ex "PSG", "Over 2.5"
+        bookmaker_odds: [(bookmaker, cote)] pour CET outcome
+        all_outcomes_by_bookmaker: {bookmaker: [cote_outcome1, cote_outcome2, ...]}
+        min_bookmakers: Nb min pour consensus valide
+        min_threshold: Value minimum (0.03 = 3%)
+    """
+    if not bookmaker_odds:
+        raise ValueError("bookmaker_odds ne peut pas être vide")
+
+    fair_probs = []
+    for bookmaker, all_odds in all_outcomes_by_bookmaker.items():
+        if not all_odds or any(o <= 1.0 for o in all_odds):
+            continue
+        total_implied = sum(1 / o for o in all_odds)
+        if total_implied <= 0:
+            continue
+        bk_odds_for_outcome = next(
+            (o for bk, o in bookmaker_odds if bk == bookmaker), None
+        )
+        if bk_odds_for_outcome is None:
+            continue
+        fair_probs.append((1 / bk_odds_for_outcome) / total_implied)
+
+    if len(fair_probs) < min_bookmakers:
+        return []
+
+    consensus_prob = sum(fair_probs) / len(fair_probs)
+    bookmakers_count = len(fair_probs)
+
+    results = []
+    for bookmaker, odds in bookmaker_odds:
+        raw_value = (odds * consensus_prob) - 1
+        if raw_value >= min_threshold:
+            results.append(ValueBet(
+                outcome_name=outcome_name,
+                bookmaker=bookmaker,
+                odds=round(odds, 2),
+                consensus_prob=round(consensus_prob, 4),
+                value_pct=round(raw_value * 100, 2),
+                bookmakers_count=bookmakers_count
+            ))
+
+    return sorted(results, key=lambda x: x.value_pct, reverse=True)
 
 
 # === TESTS ===

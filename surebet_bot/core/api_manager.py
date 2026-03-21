@@ -140,9 +140,11 @@ class APIManager:
                 print("[APIManager] 🔄 Tentative de génération d'une nouvelle clé...")
                 success = await self.generate_new_key()
                 if success:
+                    # Recharger les clés sous lock pour éviter la race condition
                     self.load_keys()
-                    self.current_index = len(self.keys) - 1
-                    print(f"[APIManager] ✅ Nouvelle clé générée: {self.current_key[:8]}...")
+                    if self.keys:
+                        self.current_index = len(self.keys) - 1
+                    print(f"[APIManager] ✅ Nouvelle clé générée: {self.current_key[:8] if self.current_key else 'N/A'}...")
                     return True
                 else:
                     print("[APIManager] ❌ Échec de génération de nouvelle clé")
@@ -239,7 +241,8 @@ class APIManager:
             print("[APIManager] ❌ Timeout: génération trop longue (>10 min)")
             return False
         except Exception as e:
-            print(f"[APIManager] ❌ Exception: {e}")
+            import traceback
+            print(f"[APIManager] ❌ Exception: {e}\n{traceback.format_exc()}")
             return False
     
     def get_status(self) -> dict:
