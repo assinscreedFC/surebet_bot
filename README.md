@@ -1,225 +1,312 @@
-# 🎯 Surebet & Arbitrage Bot
+# Surebet & Arbitrage Bot
 
-<div align="center">
-  <p><strong>Automated multi-sports arbitrage (Surebet) detection bot with real-time Telegram notifications</strong></p>
+Automated multi-sports arbitrage (Surebet) detection bot with real-time Telegram notifications and autonomous API registration.
 
-  [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python)](https://www.python.org/)
-  [![Streamlit](https://img.shields.io/badge/Streamlit-1.30%2B-FF4B4B?style=for-the-badge&logo=streamlit)](https://streamlit.io/)
-  [![SQLite](https://img.shields.io/badge/SQLite-3-003B57?style=for-the-badge&logo=sqlite)](https://www.sqlite.org/)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat)](https://www.python.org/)
+[![Status](https://img.shields.io/badge/Status-Active-success?style=flat)]()
+[![License](https://img.shields.io/badge/License-Proprietary-red?style=flat)]()
 
-  ![Status](https://img.shields.io/badge/Status-Active-success?style=flat-square)
-  ![Version](https://img.shields.io/badge/Version-1.0.0-blue?style=flat-square)
-</div>
+## Overview
 
-## 📋 Overview
+**Surebet & Arbitrage Bot** is a Python application designed to identify and exploit arbitrage opportunities (surebets) in sports betting markets. By analyzing odds from multiple bookmakers in real-time, the bot guarantees mathematical profit regardless of match outcomes.
 
-**Surebet & Arbitrage Bot** is a sophisticated Python application designed to identify and exploit arbitrage opportunities (surebets) in sports betting markets. By analyzing odds from multiple bookmakers in real-time, the bot guarantees mathematical profit regardless of match outcomes.
+Core features:
+- Smart scanning of head-to-head, totals (Over/Under), and spreads markets
+- High performance with asynchronous processing for fast reaction times
+- Instant alerts on Telegram with precise stake calculations
+- Automated API key generation and registration on The Odds API
+- Complete database history of detected opportunities
+- Data visualization via interactive dashboard (Streamlit)
 
-- 📊 **Smart Scanning** of h2h, totals (Over/Under), and spreads markets
-- 🚀 **High Performance** with asynchronous processing for ultra-fast reaction
-- 📱 **Instant Alerts** on Telegram with precise stake calculations
-- 📈 **Data Visualization** via a comprehensive interactive dashboard
-- 🔄 **Automatic Failover** between API keys for maximum availability
+## Features
 
-## ✨ Features
+### Core Betting Features
+- **Automatic Scan**: Continuous monitoring of markets with configurable intervals
+- **Multi-Sports**: Football, Basketball (NBA), American Football (NFL), and Tennis
+- **Multi-Bookmakers**: Comparison between Betclic, Winamax, Unibet, PMU, Pinnacle, and more
+- **Arbitrage Detection**: Mathematical algorithms for Moneyline (H2H), Totals, and Spreads
+- **Stake Calculator**: Precise indication of amounts to bet on each outcome to secure profit
+- **Database**: Complete history of detected opportunities via SQLite
+- **Rich Notifications**: Detailed Telegram alerts with profitability, odds, and suggested stakes
 
-### Core Features
-- **Automatic Scan**: Continuous monitoring of markets every 10 seconds.
-- **Multi-Sports & Leagues**: Full support for Football, NBA, NFL, and Tennis.
-- **Multi-Bookmakers**: Comparison between Betclic, Winamax, Unibet, PMU, Pinnacle, and more.
-- **Arbitrage Detection**: Mathematical algorithms for Moneyline (H2H), Totals, and Spreads.
-- **Live Dashboard**: Real-time Streamlit interface for tracking opportunities.
+### Automation Features
+- **Autonomous API Registration**: Automatic account creation on The Odds API with CAPTCHA solving
+- **Audio CAPTCHA Solving**: Extracts and solves audio CAPTCHAs using OpenAI Whisper API
+- **Browser Automation**: Stealth browser profiles with Firefox persistence
+- **Email Management**: Temporary email support for account creation
+- **Telegram Relay**: Real-time status updates during automation processes
 
 ### Advanced Features
-- **API Failover**: Automatic switching to backup keys if quotas are exhausted.
-- **Stake Calculator**: Precise indication of amounts to bet on each outcome to secure profit.
-- **Database**: Complete history of detected opportunities via SQLite.
-- **Rich Notifications**: Detailed Telegram alerts (Profitability, Odds, Suggested Stakes).
+- **API Failover**: Automatic switching to backup keys if quotas are exhausted
+- **Smart Scheduler**: Intelligent scheduling of API requests to maximize coverage
+- **Live Dashboard**: Real-time Streamlit interface for tracking opportunities
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
-- **Python 3.10+** and pip
-- **The Odds API** Keys
-- **Telegram Bot Token**
+- Python 3.10+
+- The Odds API key (or use autonomous registration)
+- Telegram Bot Token and Chat ID
+- (Optional) OpenAI API key for CAPTCHA audio solving
 
 ### Installation
 
-1. **Clone the project**
-   ```bash
-    git clone https://github.com/assinscreedFC/surebet_bot
-   ```
+1. Clone the repository
+```bash
+git clone https://github.com/assinscreedFC/surebet_bot
+cd surebet_bot
+```
 
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+2. Create and activate a virtual environment
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
 
-3. **API Keys Configuration**
-   Create an `api_keys.txt` file at the root:
-   ```text
-   email@example.com:your_32_character_api_key
-   ```
-   > Get a free key: [The Odds API](https://the-odds-api.com)
+3. Install dependencies
+```bash
+pip install aiohttp asyncio-contextmanager python-dotenv requests faker
+```
 
-4. **Environment Configuration**
-   Create a `.env` file or configure `config.py`:
-   ```env
-   TELEGRAM_BOT_TOKEN=your_token
-   TELEGRAM_CHAT_ID=your_chat_id
-   ```
+For browser automation and CAPTCHA solving (optional):
+```bash
+pip install scrapling openai
+```
 
-## 📖 Usage
+4. Configure environment variables
+
+Create a `.env` file in the project root:
+```env
+# Telegram Configuration
+TELEGRAM_BOT_TOKEN=your_token
+TELEGRAM_CHAT_ID=your_chat_id
+
+# Optional: API Key generation
+OPENAI_API_KEY=your_openai_key
+OPENAI_BASE_URL=https://your-api-endpoint/v1
+WHISPER_MODEL=whisper-1
+LLM_MODEL=your-llm-model
+
+# The Odds API (can be auto-generated)
+ODDS_API_KEYS=key1:key2:key3
+```
+
+5. (Optional) Generate API keys automatically
+```bash
+python generateur_api_manuel.py
+```
+
+This will interactively create accounts on The Odds API and populate `api_keys.txt`.
+
+## Usage
 
 ### Start the Bot
-To start scanning and notifications:
+
+Run continuous arbitrage scanning:
 ```bash
-python main.py
+python surebet_bot/main.py
 ```
+
+This will:
+- Load or generate API keys
+- Connect to Telegram
+- Start scanning configured sports/leagues every 10 seconds
+- Send alerts for detected surebets
+- Log all activity to `bot.log`
 
 ### Start the Dashboard
-To visualize data in real-time:
+
+View real-time opportunities in a web interface:
 ```bash
-python main.py --dashboard
+python surebet_bot/main.py --dashboard
 ```
+
 Then access `http://localhost:8501` in your browser.
 
-### Test
-To perform a single verification scan:
+### Manual API Registration
+
+Register a new The Odds API account autonomously:
 ```bash
-python test_bot.py
+python generateur_api_manuel.py
 ```
 
-## 🛠 Tech Stack
+Features:
+- Automatic name/email generation
+- Audio CAPTCHA solving (requires OpenAI API)
+- Browser automation with stealth profiles
+- Telegram notifications during process
 
-- **Language**: Python 3.10+
-- **Core**: `asyncio`, `aiohttp` for fast asynchronous requests.
-- **Data**: `pandas` for processing, `aiosqlite` for storage.
-- **UI**: `Streamlit` with `plotly` for interactive charts.
-- **API**: Full integration of The Odds API v4.
-- **Logging**: Complete logging system for debugging.
+### Test Mode
 
-## 📊 How it works
-
-### Surebet Mathematics
-A **surebet** exists when the sum of implied probabilities is less than 1.
-
-```math
-L = \frac{1}{\text{Odds}_{A}} + \frac{1}{\text{Odds}_{B}}
+Verify bot functionality with a single scan:
+```bash
+python surebet_bot/test_bot.py
 ```
 
-**If L < 1 → SUREBET DETECTED!**
-> Profit = (1 - L) × 100%
-
-### Concrete Example
-- **Match**: PSG vs Marseille
-- **Betclic**: Over 2.5 @ **2.10**
-- **Winamax**: Under 2.5 @ **2.10**
-- **Calculation**: (1/2.10) + (1/2.10) = 0.476 + 0.476 = **0.952**
-- **Result**: 0.952 < 1 → **4.8% Guaranteed Profit!**
-
-### Telegram Alert Format
-```
-🚀 SUREBET OPPORTUNITY DETECTED 🚀
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏆 Sport: Football - Ligue 1
-⚽ Match: PSG vs Marseille
-📊 Market: Totals 2.5
-
-✅ Betclic | Over 2.5 | 2.10 | Stake: 47.62€
-✅ Winamax | Under 2.5 | 2.10 | Stake: 52.38€
-
-📈 Profit: 5.04%
-💰 Gain base 100€: 5.04€
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Surebet Bot
-```
-
-## 🏆 Supported Sports
-
-### ⚽ Football - 17 Leagues
-The bot actively monitors the following **17 major leagues**:
-
-| Region | Leagues & Cups |
-| :--- | :--- |
-| **🇪🇺 Europe** | Champions League, Europa League, Conference League |
-| **🇫🇷 France** | Ligue 1, Coupe de France |
-| **🇬🇧 England** | Premier League, FA Cup, Carabao Cup |
-| **🇪🇸 Spain** | La Liga, Copa del Rey |
-| **🇮🇹 Italy** | Serie A, Coppa Italia |
-| **🇩🇪 Germany** | Bundesliga, DFB Pokal |
-| **🇵🇹 Portugal** | Liga Portugal |
-| **🇹🇷 Turkey** | Superlig |
-| **🇧🇷 Brazil** | Serie A |
-| **🇺🇸 USA** | MLS |
-
-### 🏀 Basketball & 🏈 US Sports
-- NBA
-- NFL
-
-### 🎾 Tennis
-- Grand Slams (US Open, Wimbledon, French Open, Australian Open)
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 surebet_bot/
-├── main.py              # Unified entry point
-├── config.py            # Centralized configuration
-├── test_bot.py          # Test script
-├── api_keys.txt         # API keys storage
+├── main.py                      # Bot entry point
+├── config.py                    # Centralized configuration
+├── constants.py                 # All constants (sports, markets, leagues)
+├── test_bot.py                  # Test script
+├── api_keys.txt                 # API keys storage (auto-generated)
 │
-├── core/                # System core
-│   ├── api_manager.py   # Key manager & Failover
-│   ├── calculator.py    # Arbitrage calculation engine
-│   ├── odds_client.py   # The Odds API client
-│   └── scanner.py       # Scan orchestrator
+├── core/                        # Core arbitrage engine
+│   ├── api_manager.py          # API key management & failover
+│   ├── calculator.py           # Arbitrage calculation engine
+│   ├── odds_client.py          # The Odds API v4 client
+│   ├── scanner.py              # Market scanning orchestrator
+│   └── scheduler.py            # Smart request scheduling
 │
-├── data/                # Data layer
-│   └── database.py      # SQLite management
+├── data/                        # Data persistence
+│   └── database.py             # SQLite opportunity history
 │
-├── notifications/       # Alert system
-│   └── telegram_bot.py  # Telegram Bot
+├── notifications/              # Alert system
+│   └── telegram_bot.py         # Telegram Bot
 │
-├── dashboard/           # User interface
-│   └── app.py           # Streamlit application
+├── automation/                 # API account creation automation
+│   ├── registration.py         # Account registration workflow
+│   ├── captcha_handler.py      # CAPTCHA detection & solving
+│   ├── mail_tm.py              # Temporary email integration
+│   ├── browser_storage.py      # Browser profile management
+│   ├── audio_solver.py         # Audio CAPTCHA solver (Whisper)
+│   └── telegram_relay.py       # Status notifications during automation
 │
-└── utils/               # Utilities
-    └── logger.py        # Logging system
+├── dashboard/                  # User interface
+│   └── app.py                  # Streamlit application
+│
+└── utils/                      # Utilities
+    └── logger.py               # Logging system
 ```
 
-## 🔧 The Odds API Details
+## Tech Stack
 
-The bot uses The Odds API v4:
-- `GET /sports`: Retrieving active sports
-- `GET /odds`: Retrieving odds (h2h, spreads, totals)
-- `GET /events`: Retrieving events for Player Props
+- **Language**: Python 3.10+
+- **Async**: `asyncio`, `aiohttp` for non-blocking I/O
+- **Data**: `pandas` for processing, `aiosqlite` for storage
+- **UI**: `Streamlit` with `plotly` for interactive charts
+- **API**: Full integration with The Odds API v4
+- **Automation**: `scrapling` for stealth browser automation (optional)
+- **CAPTCHA**: OpenAI Whisper API for audio transcription
+- **Email**: Temporary email providers for automation
+- **Logging**: Python built-in logging with file persistence
 
-## 🤝 Contributing
+## How It Works
 
-We welcome contributions! Here's how you can help:
+### Surebet Mathematics
 
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
-3. **Make** your changes
-4. **Test** the changes thoroughly
-5. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-6. **Push** to the branch (`git push origin feature/amazing-feature`)
-7. **Open** a Pull Request
+A **surebet** exists when the sum of implied probabilities is less than 1.
 
-### Development Guidelines
+```
+L = 1/Odds_A + 1/Odds_B
 
-- Follow **PEP 8** coding standards for Python
-- Document your code (docstrings)
-- Write tests for new features
-- Update documentation as needed
+If L < 1 → SUREBET DETECTED!
+Profit = (1 - L) × 100%
+```
 
-## 📝 License
+**Example:**
+- Match: PSG vs Marseille
+- Betclic: Over 2.5 @ 2.10
+- Winamax: Under 2.5 @ 2.10
+- Calculation: (1/2.10) + (1/2.10) = 0.476 + 0.476 = 0.952
+- Result: 0.952 < 1 → **4.8% Guaranteed Profit!**
 
-Copyright © 2024. All rights reserved.
+### Telegram Alert Format
+
+```
+SUREBET OPPORTUNITY DETECTED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Sport: Football - Ligue 1
+Match: PSG vs Marseille
+Market: Totals 2.5
+
+Betclic | Over 2.5 | 2.10 | Stake: 47.62€
+Winamax | Under 2.5 | 2.10 | Stake: 52.38€
+
+Profit: 5.04%
+Gain on 100€: 5.04€
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### Automation Workflow
+
+The autonomous registration process:
+1. Generate random realistic name and email
+2. Create temporary email inbox
+3. Navigate to The Odds API registration page (Scrapling)
+4. Fill form fields
+5. Detect and solve CAPTCHA:
+   - Extract audio CAPTCHA file
+   - Transcribe with OpenAI Whisper API
+   - Pass transcription to LLM for validation
+   - Inject token into form
+6. Complete registration
+7. Extract API key from confirmation email
+8. Store key in `api_keys.txt`
+9. Send Telegram notification
+
+## Supported Sports
+
+### Football (17 Leagues)
+- European: Champions League, Europa League, Conference League
+- France: Ligue 1, Coupe de France
+- England: Premier League, FA Cup, Carabao Cup
+- Spain: La Liga, Copa del Rey
+- Italy: Serie A, Coppa Italia
+- Germany: Bundesliga, DFB Pokal
+- Portugal: Liga Portugal
+- Turkey: Superlig
+- Brazil: Serie A
+- USA: MLS
+
+### Basketball & US Sports
+- NBA
+- NFL
+
+### Tennis
+- Grand Slams (US Open, Wimbledon, French Open, Australian Open)
+
+## Configuration
+
+Key settings in `config.py`:
+- `SCAN_INTERVAL`: How often to check markets (default: 10 seconds)
+- `REQUEST_DELAY`: Delay between API requests to respect rate limits
+- `COOLDOWN_MINUTES`: Cooldown between duplicate surebet alerts
+- `BOOKMAKERS`: List of bookmakers to monitor
+- `FOOTBALL_LEAGUES`, `BASKETBALL_LEAGUES`, etc.: Sports configuration
+
+For automation:
+- `GENERATION_TIMEOUT`: Max time to wait for API key generation
+- `OPENAI_API_KEY`: For CAPTCHA audio solving
+- `TELEGRAM_BOT_TOKEN`: For automation status updates
+
+## Known Issues
+
+See `PROJECT_STATUS.md` for:
+- API routes not yet tested
+- Arbitrage detection algorithm validation needed
+- Registration script optimization required
+- Audio CAPTCHA reliability depends on network latency
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/improvement`)
+3. Make your changes
+4. Test thoroughly
+5. Commit with clear messages
+6. Push to your branch
+7. Open a Pull Request
+
+Follow PEP 8 coding standards and document your code with docstrings.
+
+## License
+
+Copyright 2024. All rights reserved.
 Internal usage only.
 
 ---
-<div align="center">
-  <p>Built with ❤️ for financial optimization</p>
-</div>
+
+Built for financial optimization through arbitrage detection.
